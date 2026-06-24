@@ -9,7 +9,7 @@ Usage:
         --input <path>              Input mesh file (.glb/.gltf/.obj/.fbx) \\
         --output <path>             Output file path \\
         --format glb|fbx            Export format \\
-        [--engine unity|godot|unreal]  Target game engine
+        [--engine omniverse|twinmotion|bim|unity|godot|unreal]  Target platform (DT-first)
 
 Pipeline output is printed as a single JSON line prefixed with 'RESULT:'.
 """
@@ -47,8 +47,8 @@ def parse_args():
                                  "omniverse", "twinmotion", "bim"],
                         default=None,
                         help="Target platform for axis/scale conversion. "
-                             "Game: unity/godot/unreal. "
-                             "Digital Twin: omniverse/twinmotion/bim.")
+                             "Digital Twin (primary): omniverse/twinmotion/bim. "
+                             "Realtime axis presets (legacy): unity/godot/unreal.")
     # Optional DT metadata that gets embedded in GLB extras / USD attributes
     parser.add_argument("--meta-category",     default=None)
     parser.add_argument("--meta-dims-mm",      default=None,

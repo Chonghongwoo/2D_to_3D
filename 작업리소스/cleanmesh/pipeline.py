@@ -80,14 +80,15 @@ class CleanMeshPipeline:
             force_method: Override routing decision
             object_name: Custom name for the output
             target_polys: Target polygon count for decimation
-            engine_target: Target engine (unity/godot/unreal)
+            engine_target: Target platform for axis/scale conversion
+                (omniverse / twinmotion / bim / unity / godot / unreal)
             skip_cleanup: Skip Blender cleanup step
             skip_render: Skip render verification step
             pre_masked: Inputs already have clean alpha (e.g. from SAM2
                 click-segment). TRELLIS will skip its internal rembg.
-            color_mode: "vertex" (default — keep per-vertex colors) or
-                "region_split" (cluster colors into K regions, one solid
-                material per region — better for game engines / LOD).
+            color_mode: "vertex" (default — keep per-vertex colors, DT-recommended
+                for surface fidelity) or "region_split" (cluster colors into K
+                regions, one solid material per region — for LOD / modular reuse).
             color_k: Number of color regions when color_mode='region_split'
                 (clamped to 2..8).
 

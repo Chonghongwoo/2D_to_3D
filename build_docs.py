@@ -824,7 +824,7 @@ def build_pptx():
     _p_table(s, PInches(0.5), PInches(1.6), PInches(12.3), PInches(2.5),
            ["모드", "결과", "디지털 트윈 적합도"],
            [["정점 색상 (vertex)", "실제 표면 그라데이션 그대로", "⭐⭐⭐ 권장 — 산화·녹·라벨 보존"],
-            ["영역별 분해 (region_split)", "K개 sub-mesh, 평평한 단색", "게임/LOD, DT 비권장"]])
+            ["영역별 분해 (region_split)", "K개 sub-mesh, 평평한 단색", "단색 LOD · 모듈화 용 (DT 비권장)"]])
     _bullets(s, PInches(0.6), PInches(4.4), PInches(12), PInches(2.5), [
         ("→", "DT에서는 자산 진단·식별을 위해 실제 외관 보존이 중요"),
         ("→", "잡티 제거 강도: 약 또는 끄기 권장 (디테일 우선)"),

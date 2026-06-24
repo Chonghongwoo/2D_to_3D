@@ -84,8 +84,8 @@ class CleanupConfig:
 @dataclass
 class ExportConfig:
     """Export settings."""
-    format: str = "glb"  # glb or fbx
-    engine: str = "unity"  # unity, godot, unreal
+    format: str = "glb"  # glb, fbx, or usd
+    engine: str = "omniverse"  # omniverse, twinmotion, bim, unity, godot, unreal
 
 
 @dataclass

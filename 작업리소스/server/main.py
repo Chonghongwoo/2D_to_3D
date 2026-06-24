@@ -135,7 +135,8 @@ async def generate(
     """
     Generate a 3D model from an uploaded image.
 
-    Upload an image and get back a clean, game-ready 3D model.
+    Upload an image and get back a clean, digital-twin-ready 3D asset
+    (GLB / USD / FBX) with optional metadata (category, dimensions, manufacturer).
     """
     job_id = str(uuid.uuid4())[:8]
     config = get_config()

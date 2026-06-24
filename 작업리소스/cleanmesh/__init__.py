@@ -1,9 +1,12 @@
 """
-CleanMesh — Image-to-3D Pipeline with Automated Mesh Cleanup
+CleanMesh — Image-to-3D Pipeline for Digital Twin Asset Creation
 
-Generates clean, game-ready 3D models from images or text descriptions.
+Generates clean, digital-twin-ready 3D assets (GLB / USD / FBX) from
+images or text descriptions, with optional metadata embedding
+(category, dimensions, manufacturer, serial).
+
 Supports procedural generation (bpy), TripoSR (fast), and TRELLIS (quality).
 All meshes are cleaned and validated via Blender headless pipeline.
 """
 
-__version__ = "0.1.0"
+__version__ = "1.2.0"

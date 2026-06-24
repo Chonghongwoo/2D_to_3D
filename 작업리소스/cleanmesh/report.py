@@ -76,7 +76,7 @@ def generate_report(result: dict) -> str:
     # Suggestions
     lines.append(f"\n💡 다음 단계:")
     if result.get("status") == "success":
-        lines.append("   - GLB 파일을 게임 엔진에 임포트")
+        lines.append("   - GLB/USD 파일을 디지털 트윈 플랫폼(Omniverse · Twinmotion · BIM)에 import")
         lines.append("   - 렌더 이미지에서 품질 확인")
         lines.append("   - 필요시 target_polys 조정으로 LOD 생성")
     elif result.get("status") == "partial":
