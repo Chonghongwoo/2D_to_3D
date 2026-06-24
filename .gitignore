@@ -1,0 +1,63 @@
+# ── Python ──
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.pytest_cache/
+
+# ── Build artifacts ──
+build/
+dist/
+*.spec
+*.egg
+
+# ── PyInstaller bootloader output ──
+# The .exe is shipped pre-built for end users;
+# uncomment the next line if you want source-only distribution
+# 실행/CleanMeshStudio.exe
+
+# ── Logs / runtime ──
+*.log
+실행/CleanMeshStudio.log
+실행/_onedrive_backup.txt
+
+# ── Windows shortcuts (machine-specific absolute paths) ──
+*.lnk
+
+# ── OS junk ──
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Editor / IDE ──
+.vscode/
+.idea/
+*.swp
+*~
+
+# ── Large binaries / models (handled by upstream installs) ──
+*.safetensors
+*.bin
+*.ckpt
+*.pt
+*.onnx
+
+# ── Generated docs (auto-built from build_docs.py) ──
+# Uncomment if you want to ship pre-built docs:
+# CleanMesh_기술문서.docx
+# CleanMesh_매뉴얼.pptx
+
+# ── Local secrets / env ──
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets.json
+
+# ── TRELLIS / SAM2 weights (downloaded at install time) ──
+trellis_wsl/checkpoints/
+trellis_wsl/_workdir/
+trellis_wsl/*.log

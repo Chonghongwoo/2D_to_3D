@@ -1,0 +1,890 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<title>CleanMesh Studio</title>
+<style>
+  :root {
+    --bg: #1a1c20;
+    --panel: #24272d;
+    --panel2: #2e3239;
+    --text: #e8eaed;
+    --muted: #9aa0a6;
+    --accent: #4f8cff;
+    --accent-hover: #6ba1ff;
+    --ok: #34c759;
+    --warn: #ff9500;
+    --err: #ff3b30;
+    --border: #383c44;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, "Segoe UI", Roboto, "맑은 고딕", sans-serif;
+    height: 100vh; display: flex; flex-direction: column;
+  }
+  header {
+    padding: 12px 20px; background: var(--panel); border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 16px;
+  }
+  header h1 { margin: 0; font-size: 18px; font-weight: 600; }
+  header .spacer { flex: 1; }
+  .status-pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 10px; border-radius: 12px; font-size: 12px;
+    background: var(--panel2); border: 1px solid var(--border);
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .dot.ok { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+  .dot.err { background: var(--err); }
+
+  main { flex: 1; display: grid; grid-template-columns: 380px 1fr; overflow: hidden; }
+
+  /* Left: input */
+  .left {
+    padding: 20px; overflow-y: auto; background: var(--panel);
+    border-right: 1px solid var(--border); display: flex; flex-direction: column; gap: 16px;
+  }
+  .section h2 { font-size: 13px; font-weight: 600; margin: 0 0 8px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+
+  .dropzone {
+    border: 2px dashed var(--border); border-radius: 8px; padding: 24px 16px;
+    text-align: center; cursor: pointer; transition: all 0.15s;
+    background: var(--panel2); color: var(--muted);
+  }
+  .dropzone:hover, .dropzone.dragover {
+    border-color: var(--accent); color: var(--accent); background: rgba(79, 140, 255, 0.06);
+  }
+  .dropzone input { display: none; }
+  .thumb-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .thumb {
+    position: relative; width: 56px; height: 56px;
+    border-radius: 4px; overflow: hidden; border: 1px solid var(--border);
+  }
+  .thumb img { width: 100%; height: 100%; object-fit: cover; }
+  .thumb .x {
+    position: absolute; top: 1px; right: 1px;
+    background: rgba(0,0,0,0.6); color: white; border: none;
+    width: 16px; height: 16px; border-radius: 50%; cursor: pointer; font-size: 10px;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  textarea, select {
+    width: 100%; background: var(--panel2); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 8px 10px; font-family: inherit; font-size: 13px;
+    resize: vertical;
+  }
+  textarea { min-height: 64px; }
+  textarea:focus, select:focus { outline: none; border-color: var(--accent); }
+
+  .row { display: flex; gap: 8px; }
+  .row > * { flex: 1; }
+
+  button.primary {
+    background: var(--accent); color: white; border: none;
+    padding: 10px 16px; border-radius: 6px; font-size: 14px; font-weight: 600;
+    cursor: pointer; transition: background 0.15s;
+  }
+  button.primary:hover:not(:disabled) { background: var(--accent-hover); }
+  button.primary:disabled { background: #404550; cursor: not-allowed; opacity: 0.5; }
+
+  button.ghost {
+    background: transparent; color: var(--muted); border: 1px solid var(--border);
+    padding: 6px 10px; border-radius: 4px; font-size: 12px; cursor: pointer;
+  }
+  button.ghost:hover { color: var(--text); border-color: var(--text); }
+
+  /* Right: log + result */
+  .right { padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; }
+
+  .log {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+    padding: 12px 16px; font-family: "Cascadia Code", Consolas, monospace; font-size: 12px;
+    flex: 1; min-height: 200px; overflow-y: auto; white-space: pre-wrap;
+    line-height: 1.5;
+  }
+  .log .info { color: var(--muted); }
+  .log .ok   { color: var(--ok); }
+  .log .err  { color: var(--err); }
+  .log .stage { color: var(--accent); font-weight: 600; }
+
+  .result {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+    padding: 16px;
+  }
+  .result h3 { margin: 0 0 12px; font-size: 14px; }
+  .result-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 12px; font-size: 13px;
+  }
+  .result-grid .k { color: var(--muted); }
+  .result-grid .v { color: var(--text); }
+  .contact-sheet img { max-width: 100%; border-radius: 4px; margin-top: 12px; }
+
+  .actions { display: flex; gap: 8px; margin-top: 12px; }
+
+  /* ─── Click-to-segment (SAM2) panel ─── */
+  .seg-panel {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+    padding: 12px; display: flex; flex-direction: column; gap: 10px;
+  }
+  .seg-tabs { display: flex; flex-wrap: wrap; gap: 4px; }
+  .seg-tab {
+    padding: 4px 10px; border-radius: 12px; font-size: 12px;
+    background: var(--panel2); border: 1px solid var(--border);
+    color: var(--muted); cursor: pointer;
+  }
+  .seg-tab.active { background: var(--accent); color: white; border-color: var(--accent); }
+  .seg-tab.done { color: var(--ok); border-color: var(--ok); }
+
+  .seg-canvas-wrap {
+    position: relative; background: #0e1014; border-radius: 6px;
+    border: 1px solid var(--border); overflow: hidden;
+    display: flex; align-items: center; justify-content: center; min-height: 260px;
+  }
+  .seg-canvas-wrap canvas { display: block; max-width: 100%; cursor: crosshair; }
+  .seg-overlay {
+    position: absolute; pointer-events: none; top: 0; left: 0;
+  }
+  .seg-empty {
+    color: var(--muted); font-size: 13px; padding: 30px;
+  }
+
+  .seg-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .seg-controls .hint { color: var(--muted); font-size: 11px; flex: 1; }
+
+  .seg-modebar {
+    display: inline-flex; background: var(--panel2);
+    border: 1px solid var(--border); border-radius: 6px; overflow: hidden;
+  }
+  .seg-mode-btn {
+    background: transparent; border: none; color: var(--muted); cursor: pointer;
+    padding: 6px 10px; font-size: 12px; font-weight: 500;
+  }
+  .seg-mode-btn.active { background: var(--accent); color: white; }
+  .seg-mode-btn.neg.active { background: var(--err); }
+
+  .seg-thumbs { display: flex; gap: 6px; flex-wrap: wrap; }
+  .seg-thumb {
+    width: 64px; height: 64px; border-radius: 4px; overflow: hidden;
+    border: 2px solid transparent; position: relative; background: #0e1014;
+    cursor: pointer;
+  }
+  .seg-thumb.active { border-color: var(--accent); }
+  .seg-thumb.done { border-color: var(--ok); }
+  .seg-thumb img { width: 100%; height: 100%; object-fit: contain; }
+  .seg-thumb .badge {
+    position: absolute; right: 2px; bottom: 2px; font-size: 9px;
+    background: rgba(0,0,0,0.6); color: white; padding: 1px 4px; border-radius: 3px;
+  }
+
+  .seg-toggle-row {
+    display: flex; align-items: center; gap: 8px; padding: 6px 0;
+  }
+  .seg-toggle-row label { font-size: 13px; cursor: pointer; }
+  .seg-toggle-row input { cursor: pointer; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🛠 CleanMesh Studio</h1>
+  <div class="spacer"></div>
+  <div id="blender-status" class="status-pill"><span class="dot"></span><span>Blender 확인 중…</span></div>
+</header>
+
+<main>
+  <!-- LEFT: input -->
+  <aside class="left">
+    <div class="section">
+      <h2>이미지 (1장 = TripoSR · 2장+ = TRELLIS 멀티뷰)</h2>
+      <label class="dropzone" id="dropzone">
+        <input type="file" id="files" multiple accept="image/*" />
+        <div>여기에 이미지를 끌어다 놓거나<br/>클릭해서 선택하세요</div>
+      </label>
+      <div id="thumbs" class="thumb-row"></div>
+    </div>
+
+    <div class="section">
+      <h2>또는 절차적 텍스트 (이미지 없이)</h2>
+      <textarea id="description" placeholder="예: 200L 빨간 드럼통, EUR1 팔레트, 600x400x400 박스…"></textarea>
+    </div>
+
+    <div class="section">
+      <h2>옵션</h2>
+      <div class="row">
+        <select id="quality">
+          <option value="speed">속도 (TripoSR)</option>
+          <option value="quality" selected>품질 (TRELLIS)</option>
+        </select>
+        <select id="engine">
+          <option value="unity" selected>Unity</option>
+          <option value="godot">Godot</option>
+          <option value="unreal">Unreal</option>
+        </select>
+      </div>
+      <input id="object-name" type="text" placeholder="객체 이름 (선택사항)"
+             style="width:100%;margin-top:8px;background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:13px;" />
+      <div class="seg-toggle-row">
+        <input type="checkbox" id="enable-segment" />
+        <label for="enable-segment">🎯 클릭으로 주체만 추출 (SAM2, 권장)</label>
+      </div>
+
+      <!-- Color mode -->
+      <div style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border);">
+        <h2 style="font-size:13px; font-weight:600; margin:0 0 8px; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px;">색상 입히기</h2>
+        <div class="seg-toggle-row" style="padding:2px 0;">
+          <input type="radio" name="color-mode" id="color-vertex" value="vertex" checked />
+          <label for="color-vertex">정점 색상 (실제 표면 그대로) — <b>디지털 트윈 권장</b></label>
+        </div>
+        <div class="seg-toggle-row" style="padding:2px 0;">
+          <input type="radio" name="color-mode" id="color-split" value="region_split" />
+          <label for="color-split">영역별 분해 (K개 단색) — 게임/LOD 용도</label>
+        </div>
+        <!-- K slider — only relevant for region_split mode -->
+        <div id="color-k-row" style="margin-top:6px; padding-left:22px; display:none;">
+          <label style="font-size:12px; color:var(--muted);">
+            영역 수 K: <span id="color-k-val">3</span>
+          </label>
+          <input type="range" id="color-k" min="2" max="8" value="3" step="1"
+                 style="width:100%; margin-top:4px;" />
+        </div>
+
+        <!-- Clean strength — common to both modes -->
+        <div style="margin-top:8px;">
+          <label style="font-size:12px; color:var(--muted); display:block;">
+            잡티 제거 강도: <span id="color-clean-val">약</span>
+            <span id="color-clean-hint" style="font-size:11px; color:var(--muted); float:right;">
+              (정점 색상 평탄화 — DT 디테일 보존)
+            </span>
+          </label>
+          <select id="color-clean" style="width:100%; margin-top:4px;">
+            <option value="strong">강 — 잡티 최대 제거 (게임 LOD 용)</option>
+            <option value="medium">중 — 적당히</option>
+            <option value="light" selected>약 — 디테일 보존 (디지털 트윈 권장)</option>
+            <option value="off">끄기 — 원본 그대로</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- ── Digital Twin metadata (NEW v1.2) ── -->
+      <div style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border);">
+        <h2 style="font-size:13px; font-weight:600; margin:0 0 8px; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px;">디지털 트윈 메타데이터 (선택)</h2>
+        <input id="dt-category" type="text" placeholder="카테고리 (예: AGV, pallet, drum)"
+               style="width:100%;margin-bottom:6px;background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:6px 8px;font-size:12px;" />
+        <input id="dt-dims" type="text" placeholder='실치수 mm 예: [1200, 800, 144]'
+               style="width:100%;margin-bottom:6px;background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:6px 8px;font-size:12px;" />
+        <input id="dt-manufacturer" type="text" placeholder="제조사"
+               style="width:100%;margin-bottom:6px;background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:6px 8px;font-size:12px;" />
+        <input id="dt-serial" type="text" placeholder="시리얼 번호 / 자산 ID"
+               style="width:100%;margin-bottom:6px;background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:6px 8px;font-size:12px;" />
+        <label style="font-size:12px; color:var(--muted); display:block; margin-top:4px;">익스포트 포맷</label>
+        <select id="dt-format" style="width:100%; margin-top:2px;">
+          <option value="glb" selected>GLB (범용 — Blender, Unity, Unreal)</option>
+          <option value="usd">USD (Omniverse / Twinmotion 권장)</option>
+          <option value="fbx">FBX (Unreal / 구버전 Unity)</option>
+        </select>
+      </div>
+    </div>
+
+    <button class="primary" id="generate" onclick="onGenerate()">▶ Generate</button>
+  </aside>
+
+  <!-- RIGHT: log + result -->
+  <section class="right">
+
+    <!-- Click-to-segment panel (only visible when SAM2 mode is on AND files exist) -->
+    <div class="section" id="seg-section" style="display:none">
+      <h2>🎯 주체 클릭 (SAM2 click-to-segment)</h2>
+      <div class="seg-panel">
+        <div class="seg-tabs" id="seg-tabs"></div>
+        <div class="seg-canvas-wrap" id="seg-canvas-wrap">
+          <div class="seg-empty">이미지를 추가하면 여기에 표시됩니다</div>
+        </div>
+        <div class="seg-controls">
+          <div class="seg-modebar">
+            <button class="seg-mode-btn active" id="seg-mode-pos" onclick="segSetMode('pos')">● 주체</button>
+            <button class="seg-mode-btn neg" id="seg-mode-neg" onclick="segSetMode('neg')">● 배경</button>
+          </div>
+          <button class="ghost" onclick="segClearClicks()">↺ 클릭 초기화</button>
+          <button class="ghost" id="seg-apply" onclick="segApply()">✓ 마스크 생성</button>
+          <span class="hint">Shift+클릭 = 배경 / 우클릭도 배경</span>
+        </div>
+        <div class="seg-thumbs" id="seg-thumbs"></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>실행 로그</h2>
+      <div class="log" id="log">대기 중…</div>
+    </div>
+    <div id="result-panel" class="result" style="display:none">
+      <h3>📦 결과</h3>
+      <div class="result-grid" id="result-grid"></div>
+      <div class="contact-sheet"><img id="contact-img" alt=""/></div>
+      <div class="actions">
+        <button class="primary" id="btn-blender" onclick="onSendToBlender()">🎨 Blender로 보내기</button>
+        <a class="ghost" id="btn-download" target="_blank">⬇ GLB 다운로드</a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+const API = "/api";
+let currentFiles = [];
+let currentJob = null;
+
+// ─── Blender status polling ─── //
+async function pollBlenderStatus() {
+  try {
+    const r = await fetch(`${API}/health/blender`);
+    const d = await r.json();
+    const el = document.getElementById("blender-status");
+    const dot = el.querySelector(".dot");
+    const txt = el.querySelector("span:last-child");
+    if (d.alive) {
+      dot.className = "dot ok";
+      const objs = d.scene?.object_count ?? "?";
+      txt.textContent = `Blender 연결됨 (객체 ${objs}개)`;
+    } else {
+      dot.className = "dot err";
+      txt.textContent = "Blender 미연결 (port 9876)";
+    }
+  } catch (e) {
+    document.querySelector("#blender-status .dot").className = "dot err";
+    document.querySelector("#blender-status span:last-child").textContent = "서버 응답 없음";
+  }
+}
+setInterval(pollBlenderStatus, 3000);
+pollBlenderStatus();
+
+// ─── File drop / select ─── //
+const dz = document.getElementById("dropzone");
+const fileInput = document.getElementById("files");
+
+dz.addEventListener("dragover", e => { e.preventDefault(); dz.classList.add("dragover"); });
+dz.addEventListener("dragleave", () => dz.classList.remove("dragover"));
+dz.addEventListener("drop", e => {
+  e.preventDefault(); dz.classList.remove("dragover");
+  addFiles(Array.from(e.dataTransfer.files).filter(f => f.type.startsWith("image/")));
+});
+fileInput.addEventListener("change", e => addFiles(Array.from(e.target.files)));
+
+function addFiles(files) {
+  currentFiles = currentFiles.concat(files);
+  renderThumbs();
+}
+
+function renderThumbs() {
+  const row = document.getElementById("thumbs");
+  row.innerHTML = "";
+  currentFiles.forEach((f, i) => {
+    const url = URL.createObjectURL(f);
+    const t = document.createElement("div");
+    t.className = "thumb";
+    t.innerHTML = `<img src="${url}" /><button class="x" onclick="removeFile(${i})">×</button>`;
+    row.appendChild(t);
+  });
+  // Invalidate any existing segment session — file list changed
+  seg.sessionId = null;
+  segRefreshVisibility();
+}
+function removeFile(i) {
+  currentFiles.splice(i, 1);
+  // also clear segment session state since indices change
+  segReset();
+  renderThumbs();
+  segRefreshVisibility();
+}
+
+// ─── SAM2 click-to-segment state ─── //
+const seg = {
+  enabled: false,
+  sessionId: null,
+  images: [],          // [{idx, url, width, height, cutoutUrl, score, bbox}]
+  activeIdx: 0,
+  mode: "pos",         // "pos" | "neg"
+  clicksPerImage: {},  // { idx: [[x,y,label], ...] }
+  imgEl: null,         // currently-loaded Image()
+};
+
+document.getElementById("enable-segment").addEventListener("change", e => {
+  seg.enabled = e.target.checked;
+  segRefreshVisibility();
+});
+
+// Color mode UI wiring
+document.querySelectorAll('input[name="color-mode"]').forEach(el => {
+  el.addEventListener("change", () => {
+    const split = document.getElementById("color-split").checked;
+    document.getElementById("color-k-row").style.display = split ? "block" : "none";
+    // Hint text changes by mode
+    document.getElementById("color-clean-hint").textContent =
+      split ? "(평탄화 + 라벨 정리 + 작은 패치 흡수)" : "(정점 색상 평탄화)";
+  });
+});
+document.getElementById("color-k").addEventListener("input", e => {
+  document.getElementById("color-k-val").textContent = e.target.value;
+});
+document.getElementById("color-clean").addEventListener("change", e => {
+  const labels = { strong: "강", medium: "중", light: "약", off: "끄기" };
+  document.getElementById("color-clean-val").textContent = labels[e.target.value] || e.target.value;
+});
+
+function getDtMeta() {
+  const cat   = document.getElementById("dt-category").value.trim();
+  const dims  = document.getElementById("dt-dims").value.trim();
+  const mfg   = document.getElementById("dt-manufacturer").value.trim();
+  const ser   = document.getElementById("dt-serial").value.trim();
+  const fmt   = document.getElementById("dt-format").value;
+  const meta = { export_format: fmt };
+  if (cat)  meta.category      = cat;
+  if (mfg)  meta.manufacturer  = mfg;
+  if (ser)  meta.serial_number = ser;
+  if (dims) {
+    // Accept "[1200, 800, 144]" or "1200, 800, 144" or "1200x800x144"
+    let parsed;
+    try { parsed = JSON.parse(dims); }
+    catch {
+      const nums = dims.split(/[\s,xX×]+/).map(Number).filter(n => !isNaN(n));
+      if (nums.length >= 1) parsed = nums;
+    }
+    if (parsed) meta.dimensions_mm = parsed;
+  }
+  return meta;
+}
+
+function getColorOpts() {
+  const mode = document.querySelector('input[name="color-mode"]:checked').value;
+  const k = parseInt(document.getElementById("color-k").value, 10) || 3;
+  const preset = document.getElementById("color-clean").value;
+  // Preset → 3 underlying knobs sent to backend
+  const presetMap = {
+    "strong": { smooth_iters: 7, label_smooth_iters: 4, min_region_size: 200 },
+    "medium": { smooth_iters: 5, label_smooth_iters: 3, min_region_size: 100 },
+    "light":  { smooth_iters: 2, label_smooth_iters: 1, min_region_size: 30  },
+    "off":    { smooth_iters: 0, label_smooth_iters: 0, min_region_size: 1   },
+  };
+  const knobs = presetMap[preset] || presetMap["medium"];
+  return {
+    color_mode: mode,
+    color_k: k,
+    color_smooth_iters: knobs.smooth_iters,
+    color_label_smooth_iters: knobs.label_smooth_iters,
+    color_min_region_size: knobs.min_region_size,
+  };
+}
+
+function segRefreshVisibility() {
+  const want = seg.enabled && currentFiles.length > 0;
+  document.getElementById("seg-section").style.display = want ? "block" : "none";
+  if (want && !seg.sessionId) segUploadAll();
+}
+
+async function segUploadAll() {
+  if (!currentFiles.length) return;
+  logLine(`SAM2: ${currentFiles.length}장 업로드 중…`, "info");
+  const fd = new FormData();
+  currentFiles.forEach(f => fd.append("files", f));
+  try {
+    const r = await fetch(`${API}/segment-upload`, { method: "POST", body: fd });
+    const d = await r.json();
+    seg.sessionId = d.session_id;
+    seg.images = d.images.map(i => ({
+      idx: i.idx, url: i.url, width: i.width, height: i.height,
+      cutoutUrl: null, score: null, bbox: null,
+    }));
+    seg.clicksPerImage = {};
+    seg.activeIdx = 0;
+    logLine(`SAM2: 세션 ${seg.sessionId} (${seg.images.length}장)`, "ok");
+    segRenderTabs();
+    segLoadActive();
+    segRenderThumbs();
+  } catch (e) {
+    logLine(`SAM2 업로드 실패: ${e}`, "err");
+  }
+}
+
+function segReset() {
+  seg.sessionId = null;
+  seg.images = [];
+  seg.clicksPerImage = {};
+  seg.activeIdx = 0;
+  document.getElementById("seg-tabs").innerHTML = "";
+  document.getElementById("seg-thumbs").innerHTML = "";
+  document.getElementById("seg-canvas-wrap").innerHTML =
+    '<div class="seg-empty">이미지를 추가하면 여기에 표시됩니다</div>';
+}
+
+function segRenderTabs() {
+  const tabs = document.getElementById("seg-tabs");
+  tabs.innerHTML = "";
+  seg.images.forEach(img => {
+    const t = document.createElement("button");
+    t.className = "seg-tab";
+    if (img.idx === seg.activeIdx) t.classList.add("active");
+    if (img.cutoutUrl) t.classList.add("done");
+    t.textContent = `이미지 ${img.idx + 1}${img.cutoutUrl ? " ✓" : ""}`;
+    t.onclick = () => { seg.activeIdx = img.idx; segRenderTabs(); segLoadActive(); };
+    tabs.appendChild(t);
+  });
+}
+
+function segRenderThumbs() {
+  const row = document.getElementById("seg-thumbs");
+  row.innerHTML = "";
+  seg.images.forEach(img => {
+    const t = document.createElement("div");
+    t.className = "seg-thumb";
+    if (img.idx === seg.activeIdx) t.classList.add("active");
+    if (img.cutoutUrl) t.classList.add("done");
+    const src = img.cutoutUrl || img.url;
+    t.innerHTML = `<img src="${src}" />`;
+    if (img.score != null) {
+      const b = document.createElement("span");
+      b.className = "badge";
+      b.textContent = `${(img.score * 100).toFixed(0)}%`;
+      t.appendChild(b);
+    }
+    t.onclick = () => { seg.activeIdx = img.idx; segRenderTabs(); segLoadActive(); segRenderThumbs(); };
+    row.appendChild(t);
+  });
+}
+
+function segLoadActive() {
+  const wrap = document.getElementById("seg-canvas-wrap");
+  wrap.innerHTML = "";
+  const rec = seg.images[seg.activeIdx];
+  if (!rec) return;
+
+  const img = new Image();
+  img.crossOrigin = "anonymous";
+  img.onload = () => {
+    seg.imgEl = img;
+    const maxW = wrap.clientWidth || 600;
+    const scale = Math.min(1, maxW / img.naturalWidth);
+    const cw = Math.round(img.naturalWidth * scale);
+    const ch = Math.round(img.naturalHeight * scale);
+
+    const canvas = document.createElement("canvas");
+    canvas.width = cw; canvas.height = ch;
+    canvas.style.width = cw + "px"; canvas.style.height = ch + "px";
+    wrap.appendChild(canvas);
+    seg._canvas = canvas;
+    seg._scale = scale;
+    segRedraw();
+
+    canvas.addEventListener("contextmenu", e => e.preventDefault());
+    canvas.addEventListener("mousedown", e => {
+      e.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const cx = (e.clientX - rect.left) / scale;
+      const cy = (e.clientY - rect.top) / scale;
+      // right-button or shift = negative
+      const neg = (e.button === 2) || e.shiftKey || (seg.mode === "neg");
+      const label = neg ? 0 : 1;
+      const idx = rec.idx;
+      if (!seg.clicksPerImage[idx]) seg.clicksPerImage[idx] = [];
+      seg.clicksPerImage[idx].push([Math.round(cx), Math.round(cy), label]);
+      segRedraw();
+    });
+  };
+  img.onerror = () => {
+    wrap.innerHTML = '<div class="seg-empty err">이미지 로드 실패</div>';
+  };
+  img.src = rec.url + (rec.url.includes("?") ? "&" : "?") + "t=" + Date.now();
+}
+
+function segRedraw() {
+  const canvas = seg._canvas;
+  if (!canvas || !seg.imgEl) return;
+  const ctx = canvas.getContext("2d");
+  const rec = seg.images[seg.activeIdx];
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  // draw cutout (if available) blended over the source; else just source
+  ctx.drawImage(seg.imgEl, 0, 0, canvas.width, canvas.height);
+  // green overlay where alpha is present in cutout
+  // (We don't pixel-mix here; instead we show the cutout dimmed below + clicks on top.)
+  const clicks = seg.clicksPerImage[rec.idx] || [];
+  for (const [x, y, label] of clicks) {
+    const cx = x * seg._scale, cy = y * seg._scale;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 7, 0, 2 * Math.PI);
+    ctx.fillStyle = label ? "rgba(52,199,89,0.95)" : "rgba(255,59,48,0.95)";
+    ctx.fill();
+    ctx.lineWidth = 2; ctx.strokeStyle = "white"; ctx.stroke();
+  }
+  // bbox if known
+  if (rec.bbox) {
+    const [x1, y1, x2, y2] = rec.bbox;
+    ctx.strokeStyle = "rgba(79,140,255,0.8)";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x1 * seg._scale, y1 * seg._scale,
+                   (x2 - x1) * seg._scale, (y2 - y1) * seg._scale);
+  }
+}
+
+function segSetMode(m) {
+  seg.mode = m;
+  document.getElementById("seg-mode-pos").classList.toggle("active", m === "pos");
+  document.getElementById("seg-mode-neg").classList.toggle("active", m === "neg");
+}
+
+function segClearClicks() {
+  const rec = seg.images[seg.activeIdx];
+  if (!rec) return;
+  seg.clicksPerImage[rec.idx] = [];
+  rec.cutoutUrl = null;
+  rec.score = null;
+  rec.bbox = null;
+  segRedraw();
+  segRenderTabs();
+  segRenderThumbs();
+}
+
+async function segApply() {
+  const rec = seg.images[seg.activeIdx];
+  if (!rec) return;
+  const clicks = seg.clicksPerImage[rec.idx] || [];
+  if (clicks.length === 0) {
+    alert("먼저 주체 위에 한 번 이상 클릭하세요.");
+    return;
+  }
+  const btn = document.getElementById("seg-apply");
+  btn.disabled = true; btn.textContent = "처리 중…";
+  try {
+    const body = {
+      session_id: seg.sessionId,
+      image_index: rec.idx,
+      points: clicks,
+      feather: 2,
+    };
+    const r = await fetch(`${API}/segment`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const d = await r.json();
+    if (!r.ok || d.status !== "ok") {
+      throw new Error(d.detail || d.error || "SAM2 실패");
+    }
+    rec.cutoutUrl = d.cutout_url;
+    rec.score = d.score;
+    rec.bbox = d.bbox;
+    logLine(`SAM2 #${rec.idx + 1}: score=${(d.score * 100).toFixed(1)}%`, "ok");
+    segRenderTabs();
+    segRenderThumbs();
+    segRedraw();
+  } catch (e) {
+    logLine(`SAM2 실패: ${e}`, "err");
+  } finally {
+    btn.disabled = false; btn.textContent = "✓ 마스크 생성";
+  }
+}
+
+// ─── Log ─── //
+function logLine(text, cls = "info") {
+  const log = document.getElementById("log");
+  const time = new Date().toLocaleTimeString();
+  log.innerHTML += `<span class="${cls}">[${time}] ${text}</span>\n`;
+  log.scrollTop = log.scrollHeight;
+}
+function clearLog() { document.getElementById("log").innerHTML = ""; }
+
+// ─── Generate ─── //
+async function onGenerate() {
+  const desc = document.getElementById("description").value.trim();
+  const quality = document.getElementById("quality").value;
+  const engine = document.getElementById("engine").value;
+  const name = document.getElementById("object-name").value.trim();
+  const btn = document.getElementById("generate");
+
+  if (currentFiles.length === 0 && !desc) {
+    alert("이미지 또는 텍스트 설명 중 하나는 필요합니다.");
+    return;
+  }
+
+  clearLog();
+  document.getElementById("result-panel").style.display = "none";
+  btn.disabled = true;
+  logLine("작업 큐 등록…", "stage");
+
+  const colorOpts = getColorOpts();
+  const dtMeta = getDtMeta();
+  if (colorOpts.color_mode === "region_split") {
+    logLine(`색상 입히기: 영역별 분해 K=${colorOpts.color_k}`, "info");
+  }
+  if (dtMeta.category || dtMeta.dimensions_mm) {
+    logLine(`DT 메타: ${dtMeta.category || '?'} / ${JSON.stringify(dtMeta.dimensions_mm || [])} / ${dtMeta.manufacturer || '?'}`, "info");
+  }
+  if (dtMeta.export_format !== "glb") {
+    logLine(`익스포트 포맷: ${dtMeta.export_format.toUpperCase()}`, "info");
+  }
+
+  let jobId;
+  try {
+    // ── Segmented flow: SAM2 cutouts already produced ──
+    if (seg.enabled && seg.sessionId) {
+      const ready = seg.images.filter(i => i.cutoutUrl);
+      if (ready.length === 0) {
+        alert("SAM2 모드가 켜져 있지만 마스크된 이미지가 없습니다.\n주체를 클릭하고 '✓ 마스크 생성' 버튼을 눌러주세요.");
+        btn.disabled = false; return;
+      }
+      const body = {
+        session_id: seg.sessionId,
+        image_indices: ready.map(i => i.idx),
+        quality: "quality",
+        engine,
+        object_name: name || null,
+        description: desc || null,
+        color_mode: colorOpts.color_mode,
+        color_k: colorOpts.color_k,
+        color_smooth_iters: colorOpts.color_smooth_iters,
+        color_label_smooth_iters: colorOpts.color_label_smooth_iters,
+        color_min_region_size: colorOpts.color_min_region_size,
+        export_format: dtMeta.export_format,
+        dt_category:     dtMeta.category || null,
+        dt_dimensions_mm: dtMeta.dimensions_mm || null,
+        dt_manufacturer: dtMeta.manufacturer || null,
+        dt_serial:       dtMeta.serial_number || null,
+      };
+      const r = await fetch(`${API}/generate-segmented`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const d = await r.json();
+      jobId = d.job_id;
+      logLine(`SAM2 마스크 ${ready.length}장으로 작업 시작: ${jobId}`, "ok");
+    }
+    else if (currentFiles.length >= 2) {
+      // multi-image → TRELLIS_MULTI
+      const fd = new FormData();
+      currentFiles.forEach(f => fd.append("files", f));
+      fd.append("quality", "quality");
+      fd.append("engine", engine);
+      fd.append("color_mode", colorOpts.color_mode);
+      fd.append("color_k", String(colorOpts.color_k));
+      fd.append("color_smooth_iters", String(colorOpts.color_smooth_iters));
+      fd.append("color_label_smooth_iters", String(colorOpts.color_label_smooth_iters));
+      fd.append("color_min_region_size", String(colorOpts.color_min_region_size));
+      fd.append("export_format", dtMeta.export_format);
+      if (dtMeta.category)      fd.append("dt_category", dtMeta.category);
+      if (dtMeta.dimensions_mm) fd.append("dt_dimensions_mm", JSON.stringify(dtMeta.dimensions_mm));
+      if (dtMeta.manufacturer)  fd.append("dt_manufacturer", dtMeta.manufacturer);
+      if (dtMeta.serial_number) fd.append("dt_serial", dtMeta.serial_number);
+      if (name) fd.append("object_name", name);
+      if (desc) fd.append("description", desc);
+      const r = await fetch(`${API}/generate-multi`, { method: "POST", body: fd });
+      const d = await r.json();
+      jobId = d.job_id;
+      logLine(`멀티이미지 작업 시작 (${d.image_count}장): ${jobId}`, "ok");
+    } else if (currentFiles.length === 1) {
+      // single image → TripoSR
+      const fd = new FormData();
+      fd.append("file", currentFiles[0]);
+      fd.append("quality", quality);
+      fd.append("engine", engine);
+      fd.append("color_mode", colorOpts.color_mode);
+      fd.append("color_k", String(colorOpts.color_k));
+      fd.append("color_smooth_iters", String(colorOpts.color_smooth_iters));
+      fd.append("color_label_smooth_iters", String(colorOpts.color_label_smooth_iters));
+      fd.append("color_min_region_size", String(colorOpts.color_min_region_size));
+      fd.append("export_format", dtMeta.export_format);
+      if (dtMeta.category)      fd.append("dt_category", dtMeta.category);
+      if (dtMeta.dimensions_mm) fd.append("dt_dimensions_mm", JSON.stringify(dtMeta.dimensions_mm));
+      if (dtMeta.manufacturer)  fd.append("dt_manufacturer", dtMeta.manufacturer);
+      if (dtMeta.serial_number) fd.append("dt_serial", dtMeta.serial_number);
+      if (name) fd.append("object_name", name);
+      if (desc) fd.append("description", desc);
+      const r = await fetch(`${API}/generate`, { method: "POST", body: fd });
+      const d = await r.json();
+      jobId = d.job_id;
+      logLine(`단일 이미지 작업 시작: ${jobId}`, "ok");
+    } else {
+      // text-only → procedural
+      const fd = new FormData();
+      fd.append("template", desc.split(" ")[0] || "drum_200l");
+      if (engine) fd.append("engine", engine);
+      const r = await fetch(`${API}/generate-procedural`, { method: "POST", body: fd });
+      const d = await r.json();
+      jobId = d.job_id;
+      logLine(`절차적 생성 시작: ${jobId}`, "ok");
+    }
+  } catch (e) {
+    logLine(`작업 시작 실패: ${e}`, "err");
+    btn.disabled = false;
+    return;
+  }
+
+  // Poll status
+  currentJob = jobId;
+  const start = Date.now();
+  while (true) {
+    await new Promise(r => setTimeout(r, 1500));
+    try {
+      const r = await fetch(`${API}/status/${jobId}`);
+      const d = await r.json();
+      const elapsed = ((Date.now() - start) / 1000).toFixed(0);
+      if (d.status === "running") {
+        logLine(`⏳ 실행 중… (${elapsed}s)`);
+      } else if (d.status === "completed") {
+        logLine(`✅ 완료! (${elapsed}s)`, "ok");
+        showResult(d);
+        break;
+      } else if (d.status === "failed") {
+        logLine(`❌ 실패: ${d.error || "unknown"}`, "err");
+        break;
+      }
+    } catch (e) {
+      logLine(`상태 확인 오류: ${e}`, "err");
+      break;
+    }
+  }
+  btn.disabled = false;
+}
+
+function showResult(job) {
+  const panel = document.getElementById("result-panel");
+  panel.style.display = "block";
+
+  const stages = job.result?.stages || {};
+  const gen = stages.generation || {};
+  const cleanup = stages.cleanup || {};
+  const exp = stages.export || {};
+
+  document.getElementById("result-grid").innerHTML = `
+    <div class="k">경로</div><div class="v">${stages.routing?.method || "-"}</div>
+    <div class="k">정점</div><div class="v">${(cleanup.vertices || 0).toLocaleString()}</div>
+    <div class="k">면</div><div class="v">${(cleanup.faces || 0).toLocaleString()}</div>
+    <div class="k">UV</div><div class="v">${cleanup.has_uv ? "✅" : "❌"}</div>
+    <div class="k">엔진</div><div class="v">${exp.engine || "-"}</div>
+    <div class="k">파일 크기</div><div class="v">${(exp.file_size_mb || 0).toFixed(2)} MB</div>
+  `;
+
+  document.getElementById("contact-img").src = `${API}/contact-sheet/${currentJob}?t=${Date.now()}`;
+  document.getElementById("btn-download").href = `${API}/download/${currentJob}`;
+}
+
+async function onSendToBlender() {
+  if (!currentJob) return;
+  logLine("Blender로 전송 중…", "stage");
+  try {
+    const fd = new FormData();
+    fd.append("job_id", currentJob);
+    const r = await fetch(`${API}/import-to-blender`, { method: "POST", body: fd });
+    if (r.ok) {
+      const d = await r.json();
+      logLine(`🎨 Blender 임포트 완료`, "ok");
+    } else {
+      const t = await r.text();
+      logLine(`Blender 전송 실패: ${t}`, "err");
+    }
+  } catch (e) {
+    logLine(`Blender 전송 오류: ${e}`, "err");
+  }
+}
+</script>
+</body>
+</html>
