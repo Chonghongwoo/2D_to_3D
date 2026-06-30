@@ -852,6 +852,9 @@ async function onGenerate() {
         logLine(`✅ 완료! (${elapsed}s)`, "ok");
         // Surface fallbacks so the user knows what actually happened
         const gen = d.result?.stages?.generation || {};
+        if (gen.persistent_round && gen.persistent_round > 1) {
+          logLine(`ℹ️ Persistent retry 라운드 ${gen.persistent_round} 에서 성공 (이전 라운드들 자동 정리 후 재시도)`, "info");
+        }
         if (gen.fallback_from_trellis) {
           logLine(`ℹ️ TRELLIS 5단계 회복 모두 실패 → TripoSR로 자동 전환됨 (품질 약간 낮음)`, "info");
         } else if (gen.fallback_to_single_view) {

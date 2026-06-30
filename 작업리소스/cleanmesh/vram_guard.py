@@ -164,15 +164,22 @@ _KNOWN_HOGS = [
 ]
 
 
-def kill_known_gpu_hogs(also_browsers: bool = False) -> dict:
+def kill_known_gpu_hogs(also_browsers: bool = False,
+                        also_blender: bool = False) -> dict:
     """Stop processes known to hold VRAM unnecessarily.
 
-    OFF by default in caller; only invoked when user opts in. Returns
-    a report of {killed: [...], skipped: [...]}.
+    Escalation tiers:
+      - tier 0 (default):  Discord, Teams, OBS, NVIDIA Share, Razer, msedgewebview2
+      - + also_browsers:   chrome, msedge, firefox, brave
+      - + also_blender:    blender (user must not have unsaved work)
+
+    Returns {killed: [...], errors: [...]}.
     """
     targets = list(_KNOWN_HOGS)
     if also_browsers:
         targets += ["chrome", "msedge", "firefox", "brave"]
+    if also_blender:
+        targets += ["blender", "blender-app"]
 
     killed, errors = [], []
     for name in targets:
@@ -188,7 +195,11 @@ def kill_known_gpu_hogs(also_browsers: bool = False) -> dict:
         except Exception as e:
             errors.append({"name": name, "error": str(e)})
 
-    return {"action": "kill_hogs", "killed": killed, "errors": errors}
+    return {"action": "kill_hogs",
+            "killed": killed,
+            "errors": errors,
+            "also_browsers": also_browsers,
+            "also_blender":  also_blender}
 
 
 # ---------------------------------------------------------------------------
