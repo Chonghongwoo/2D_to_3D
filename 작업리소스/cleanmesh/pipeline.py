@@ -316,6 +316,10 @@ class CleanMeshPipeline:
                 # Both failed — keep original TRELLIS error (more informative)
                 result["triposr_fallback_also_failed"] = True
                 result["triposr_error"] = triposr_result.get("message")
+                # Surface TripoSR's stderr so root cause is visible in UI
+                tp_stderr = triposr_result.get("stderr") or ""
+                if tp_stderr:
+                    result["triposr_stderr_tail"] = tp_stderr[-800:]
 
             return result
         else:

@@ -870,6 +870,11 @@ async function onGenerate() {
         }
         if (gen.triposr_fallback_also_failed) {
           logLine(`⚠️ TripoSR 백업도 실패: ${gen.triposr_error || ''}`, "err");
+          if (gen.triposr_stderr_tail) {
+            // Show last bit of TripoSR stderr so user can see actual cause
+            const tail = gen.triposr_stderr_tail.split("\n").slice(-6).join(" | ");
+            logLine(`   TripoSR stderr: ${tail}`, "err");
+          }
         }
         const recoveryLog = gen.vram_recovery;
         if (Array.isArray(recoveryLog) && recoveryLog.length > 0) {
