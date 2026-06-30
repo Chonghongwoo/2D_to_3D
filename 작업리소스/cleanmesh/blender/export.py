@@ -57,6 +57,11 @@ def parse_args():
     parser.add_argument("--meta-serial",       default=None)
     parser.add_argument("--meta-source-image", default=None)
 
+    # SimReady — upgrade USD output to SimReady-compliant asset
+    parser.add_argument("--simready", action="store_true",
+                        help="Upgrade USD output to SimReady (USDPhysics + "
+                             "assetInfo + semantic label). USD format only.")
+
     return parser.parse_args(script_argv)
 
 
@@ -77,6 +82,31 @@ def emit_error(message: str):
 
 def get_mesh_objects():
     return [obj for obj in bpy.data.objects if obj.type == "MESH"]
+
+
+def _get_scene_bbox():
+    """Aggregate world-space AABB across all mesh objects."""
+    import math
+    min_xyz = [ math.inf,  math.inf,  math.inf]
+    max_xyz = [-math.inf, -math.inf, -math.inf]
+    found = False
+    for obj in get_mesh_objects():
+        for corner in obj.bound_box:
+            wc = obj.matrix_world @ bpy.types.Vector(corner) \
+                if hasattr(bpy.types, "Vector") else None
+            # Blender's mathutils Vector — fall back when needed
+            try:
+                from mathutils import Vector
+                wc = obj.matrix_world @ Vector(corner)
+            except Exception:
+                wc = corner
+            for i in range(3):
+                if wc[i] < min_xyz[i]: min_xyz[i] = wc[i]
+                if wc[i] > max_xyz[i]: max_xyz[i] = wc[i]
+            found = True
+    if not found:
+        return (0.0, 0.0, 0.0), (0.0, 0.0, 0.0)
+    return tuple(min_xyz), tuple(max_xyz)
 
 
 def get_mesh_stats():
@@ -413,6 +443,37 @@ def main():
         else:
             emit_error(f"Unknown format: {export_format}")
 
+        # 4b. SimReady upgrade (USD only)
+        simready_report = None
+        if args.simready and export_format == "usd":
+            try:
+                from .simready_emit import make_simready
+            except (ImportError, ValueError):
+                # Running as script (not package) — fall back to sibling import
+                import importlib.util
+                _spec = importlib.util.spec_from_file_location(
+                    "simready_emit",
+                    os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                 "simready_emit.py"),
+                )
+                _mod = importlib.util.module_from_spec(_spec)
+                _spec.loader.exec_module(_mod)
+                make_simready = _mod.make_simready
+
+            try:
+                bb_min, bb_max = _get_scene_bbox()
+                simready_report = make_simready(
+                    output_path,
+                    dt_meta=dt_meta,
+                    bbox_world=(bb_min, bb_max),
+                )
+                print(f"[simready] {simready_report}")
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                simready_report = {"error": str(e)}
+                print(f"[simready] WARN: {e}")
+
         # 5. Result
         file_size = os.path.getsize(output_path) if os.path.isfile(output_path) else 0
         stats = get_mesh_stats()
@@ -424,6 +485,7 @@ def main():
             "engine": engine,
             "file_size_bytes": file_size,
             "file_size_mb": round(file_size / (1024 * 1024), 2),
+            "simready": simready_report,
             **stats,
         })
 

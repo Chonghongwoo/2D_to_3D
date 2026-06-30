@@ -284,6 +284,15 @@
           <option value="usd">USD (Omniverse / Twinmotion 권장)</option>
           <option value="fbx">FBX (Unreal / 구버전 Unity)</option>
         </select>
+        <div class="seg-toggle-row" style="padding:6px 0 0; margin-top:6px;">
+          <input type="checkbox" id="dt-simready" />
+          <label for="dt-simready" style="font-size:12px;">
+            <b>SimReady</b> 자산으로 출력 (USDPhysics + 시맨틱 + assetInfo)
+            <span style="display:block; font-size:11px; color:var(--muted); margin-top:2px;">
+              USD 포맷에서만 적용. Omniverse 시뮬레이션 즉시 가능.
+            </span>
+          </label>
+        </div>
       </div>
     </div>
 
@@ -438,7 +447,8 @@ function getDtMeta() {
   const mfg   = document.getElementById("dt-manufacturer").value.trim();
   const ser   = document.getElementById("dt-serial").value.trim();
   const fmt   = document.getElementById("dt-format").value;
-  const meta = { export_format: fmt };
+  const simready = document.getElementById("dt-simready")?.checked || false;
+  const meta = { export_format: fmt, simready: simready };
   if (cat)  meta.category      = cat;
   if (mfg)  meta.manufacturer  = mfg;
   if (ser)  meta.serial_number = ser;
@@ -748,6 +758,7 @@ async function onGenerate() {
         dt_dimensions_mm: dtMeta.dimensions_mm || null,
         dt_manufacturer: dtMeta.manufacturer || null,
         dt_serial:       dtMeta.serial_number || null,
+        simready:        dtMeta.simready === true,
       };
       const r = await fetch(`${API}/generate-segmented`, {
         method: "POST",
@@ -774,6 +785,7 @@ async function onGenerate() {
       if (dtMeta.dimensions_mm) fd.append("dt_dimensions_mm", JSON.stringify(dtMeta.dimensions_mm));
       if (dtMeta.manufacturer)  fd.append("dt_manufacturer", dtMeta.manufacturer);
       if (dtMeta.serial_number) fd.append("dt_serial", dtMeta.serial_number);
+      if (dtMeta.simready === true) fd.append("simready", "true");
       if (name) fd.append("object_name", name);
       if (desc) fd.append("description", desc);
       const r = await fetch(`${API}/generate-multi`, { method: "POST", body: fd });
@@ -796,6 +808,7 @@ async function onGenerate() {
       if (dtMeta.dimensions_mm) fd.append("dt_dimensions_mm", JSON.stringify(dtMeta.dimensions_mm));
       if (dtMeta.manufacturer)  fd.append("dt_manufacturer", dtMeta.manufacturer);
       if (dtMeta.serial_number) fd.append("dt_serial", dtMeta.serial_number);
+      if (dtMeta.simready === true) fd.append("simready", "true");
       if (name) fd.append("object_name", name);
       if (desc) fd.append("description", desc);
       const r = await fetch(`${API}/generate`, { method: "POST", body: fd });

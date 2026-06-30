@@ -131,6 +131,7 @@ async def generate(
     dt_dimensions_mm: Optional[str] = Form(None),  # JSON string
     dt_manufacturer: Optional[str] = Form(None),
     dt_serial: Optional[str] = Form(None),
+    simready: bool = Form(False),
 ):
     """
     Generate a 3D model from an uploaded image.
@@ -180,6 +181,7 @@ async def generate(
         color_min_region_size,
         export_format,
         dt_meta,
+        simready,
     )
 
     return {"job_id": job_id, "status": "queued", "message": "파이프라인 시작됨"}
@@ -384,6 +386,7 @@ async def generate_multi(
     dt_dimensions_mm: Optional[str] = Form(None),  # JSON string
     dt_manufacturer: Optional[str] = Form(None),
     dt_serial: Optional[str] = Form(None),
+    simready: bool = Form(False),
 ):
     """Multi-image generation (routes to TRELLIS_MULTI when >=2 images)."""
     if not files:
@@ -429,6 +432,7 @@ async def generate_multi(
         color_min_region_size,
         export_format,
         dt_meta,
+        simready,
     )
 
     return {"job_id": job_id, "status": "queued", "image_count": len(image_paths)}
@@ -475,7 +479,7 @@ def _run_pipeline_job(
     skip_cleanup, skip_render,
     color_mode="vertex", color_k=4,
     color_smooth_iters=2, color_label_smooth_iters=1, color_min_region_size=30,
-    export_format="glb", dt_meta=None,
+    export_format="glb", dt_meta=None, simready=False,
 ):
     """Run the full pipeline in a background thread."""
     try:
@@ -498,6 +502,7 @@ def _run_pipeline_job(
             color_min_region_size=color_min_region_size,
             export_format=export_format,
             dt_meta=dt_meta,
+            simready=simready,
         )
 
         jobs[job_id]["status"] = "completed" if result["status"] == "success" else "failed"
@@ -517,7 +522,7 @@ def _run_pipeline_job_multi(
     skip_cleanup, skip_render,
     color_mode="vertex", color_k=4,
     color_smooth_iters=2, color_label_smooth_iters=1, color_min_region_size=30,
-    export_format="glb", dt_meta=None,
+    export_format="glb", dt_meta=None, simready=False,
 ):
     """Multi-image variant — uses image_paths kwarg so router picks TRELLIS_MULTI."""
     try:
@@ -540,6 +545,7 @@ def _run_pipeline_job_multi(
             color_min_region_size=color_min_region_size,
             export_format=export_format,
             dt_meta=dt_meta,
+            simready=simready,
         )
 
         jobs[job_id]["status"] = "completed" if result.get("status") == "success" else "failed"
@@ -793,6 +799,7 @@ async def generate_segmented(payload: dict):
         int(payload.get("color_min_region_size", 30)),
         str(payload.get("export_format", "glb")),
         dt_meta,
+        bool(payload.get("simready", False)),
     )
 
     return {"job_id": job_id, "status": "queued", "image_count": len(cutout_paths), "pre_masked": True}
@@ -804,7 +811,7 @@ def _run_pipeline_job_segmented(
     skip_cleanup, skip_render,
     color_mode="vertex", color_k=4,
     color_smooth_iters=2, color_label_smooth_iters=1, color_min_region_size=30,
-    export_format="glb", dt_meta=None,
+    export_format="glb", dt_meta=None, simready=False,
 ):
     """Pipeline runner that flags inputs as pre-masked (SAM2 cutouts)."""
     try:
@@ -827,6 +834,7 @@ def _run_pipeline_job_segmented(
             color_min_region_size=color_min_region_size,
             export_format=export_format,
             dt_meta=dt_meta,
+            simready=simready,
         )
         jobs[job_id]["status"] = "completed" if result.get("status") == "success" else "failed"
         jobs[job_id]["result"] = result

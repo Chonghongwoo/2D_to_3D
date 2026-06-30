@@ -68,6 +68,7 @@ class CleanMeshPipeline:
         color_min_region_size: int = 30,
         export_format: str = "glb",
         dt_meta: dict | None = None,
+        simready: bool = False,
     ) -> dict:
         """
         Run the full CleanMesh pipeline.
@@ -228,7 +229,8 @@ class CleanMeshPipeline:
         export_path = str(
             self.config.paths.exports_dir / f"{full_export_name}.{chosen_fmt}"
         )
-        export_result = self._export(current_path, export_path, engine, dt_meta=dt_meta)
+        export_result = self._export(current_path, export_path, engine,
+                                     dt_meta=dt_meta, simready=simready)
         result["stages"]["export"] = export_result
 
         if _is_ok(export_result):
@@ -240,6 +242,24 @@ class CleanMeshPipeline:
             result["status"] = "partial"
             result["output_path"] = current_path
             logger.warning(f"⚠️ 익스포트 실패, 중간 파일 사용: {current_path}")
+
+        # ─── SimReady validate (optional, never fails the pipeline) ───
+        if simready and chosen_fmt == "usd" and _is_ok(export_result):
+            try:
+                from .simready_validate import validate_simready
+                vr = validate_simready(export_path)
+                result["stages"]["simready_validate"] = vr
+                if vr.get("passed"):
+                    logger.info("✅ SimReady 검증 통과")
+                elif vr.get("status") == "skipped":
+                    logger.info(f"ℹ️ SimReady 검증 스킵: {vr.get('reason', '')}")
+                else:
+                    logger.warning(f"⚠️ SimReady 검증 이슈: {vr.get('issues', vr)}")
+            except Exception as e:
+                logger.warning(f"⚠️ SimReady 검증 오류 (무시): {e}")
+                result["stages"]["simready_validate"] = {
+                    "status": "failed", "error": str(e)
+                }
 
         # ─── Report ───
         report = generate_report(result)
@@ -373,10 +393,15 @@ class CleanMeshPipeline:
         return self._run_blender(cmd, "render")
 
     def _export(self, input_path: str, output_path: str, engine: str,
-                dt_meta: dict | None = None) -> dict:
+                dt_meta: dict | None = None,
+                simready: bool = False) -> dict:
         """Run Blender export script. dt_meta: optional Digital Twin metadata
         (category, dimensions_mm, manufacturer, serial_number, source_image).
-        Embedded into GLB extras / USD customLayerData."""
+        Embedded into GLB extras / USD customLayerData.
+
+        When simready=True and format=usd, the output is upgraded to a
+        SimReady-compliant asset (USDPhysics + assetInfo + semantic label).
+        """
         config = self.config
         script = config.blender.scripts_dir / "export.py"
 
@@ -410,6 +435,9 @@ class CleanMeshPipeline:
                 cmd += ["--meta-serial", str(dt_meta["serial_number"])]
             if dt_meta.get("source_image"):
                 cmd += ["--meta-source-image", str(dt_meta["source_image"])]
+
+        if simready and fmt == "usd":
+            cmd += ["--simready"]
 
         return self._run_blender(cmd, "export")
 

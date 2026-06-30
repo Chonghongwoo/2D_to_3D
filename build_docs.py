@@ -574,6 +574,34 @@ Stop-Process -Name obs64,Teams,Discord,RazerAppEngine,steamwebhelper -Force -Err
         ["pipeline_version",   "CleanMesh v1.2",                "생성 시스템 버전"],
     ])
 
+    # ─── 9.7 SimReady ──────────────────────────────────────────
+    _heading(doc, "9.7 SimReady USD 출력 (NVIDIA Omniverse 호환)", 2)
+    _para(doc,
+          "USD 익스포트시 'SimReady' 옵션을 켜면 OpenUSD 기반 NVIDIA SimReady "
+          "스펙에 호환되는 자산이 됩니다. 일반 USD는 정적 지오메트리만 담지만, "
+          "SimReady 자산은 Omniverse / Twinmotion / IsaacSim 에서 즉시 "
+          "물리 시뮬레이션이 가능합니다. 본 시스템은 NVIDIA Omniverse Kit 설치 "
+          "없이 pxr (USD Python) 만으로 SimReady 호환 USD를 생성합니다.")
+    _table(doc, ["주입 항목", "USD 스키마", "값 결정 방식"], [
+        ["Stage upAxis",         "UsdGeom.SetStageUpAxis",       "Y 강제"],
+        ["Stage metersPerUnit",  "UsdGeom.SetStageMetersPerUnit","1.0 (meters)"],
+        ["defaultPrim",          "stage.SetDefaultPrim",         "최상위 Xform 자동 지정"],
+        ["Kind",                 "Usd.ModelAPI.SetKind",         "component"],
+        ["assetInfo",            "Usd.ModelAPI.SetAssetInfo",    "name, version, manufacturer, serial_number"],
+        ["Real-world scale",     "UsdGeom.Xformable.AddScaleOp", "dimensions_mm 입력시 자동 보정"],
+        ["PhysicsCollisionAPI",  "UsdPhysics.CollisionAPI",      "모든 메시에 적용"],
+        ["MeshCollisionAPI",     "approximation=convexHull",     "8GB GPU 적합 (TriangleMesh 대비 가벼움)"],
+        ["MassAPI",              "UsdPhysics.MassAPI",           "카테고리별 density (steel 7800·wood 700·aluminum 2700·box 200 kg/m³)"],
+        ["PhysicsMaterial",      "UsdPhysics.MaterialAPI",       "μs=0.5 / μd=0.5 / e=0.0 (default)"],
+        ["semanticLabel",        "Prim.SetCustomDataByKey",      "dt_meta.category에서 자동"],
+    ])
+    _para(doc,
+          "검증: --simready 옵션으로 출력 후 시스템이 자동으로 SimReady "
+          "셀프체크를 수행합니다. NVIDIA aif-pipeline (Omniverse Kit 필요) 이 "
+          "PATH에 있으면 공식 validator로 검증하고, 없으면 내장 pxr 기반 "
+          "체크리스트로 대체합니다. 두 경우 모두 검증 실패가 파이프라인 "
+          "성공 여부에 영향을 주지 않습니다 — 진단 정보 용도입니다.")
+
     # 10. 마이그레이션
     doc.add_page_break()
     _heading(doc, "10. 다른 PC로 이전", 1)
@@ -982,10 +1010,27 @@ D:\GoogleDrive\Image_to_3D\
         ("2", "🎯 SAM2 체크 → 주체 클릭 → ✓ 마스크 생성"),
         ("3", "색상: vertex / 잡티 제거: 약 / 익스포트: USD"),
         ("4", "메타데이터 입력 — 카테고리, 실치수(mm), 제조사, 시리얼"),
-        ("5", "▶ Generate → 약 70초"),
-        ("6", "Omniverse / Twinmotion / Unreal DT에서 import"),
-        ("→", "버전 관리: --deterministic 켜면 같은 사진 → 같은 모델 (재현 가능)"),
-    ], size=15)
+        ("5", "☑ SimReady 자산으로 출력 체크 (USDPhysics 자동 주입)"),
+        ("6", "▶ Generate → 약 70초"),
+        ("7", "Omniverse / Twinmotion / BIM 협업툴에서 import → 시뮬레이션 즉시 가능"),
+        ("→", "재현성: --deterministic 켜면 같은 사진 → 같은 모델 (16GB+ GPU)"),
+    ], size=14)
+
+    # 18.7 SimReady 슬라이드 (NEW)
+    s = new(); _title(s, "19. SimReady USD 출력", "NVIDIA Omniverse 호환 디지털 트윈 자산")
+    _p_table(s, PInches(0.5), PInches(1.6), PInches(12.3), PInches(3.6),
+           ["항목", "일반 USD", "SimReady USD (이 시스템)"],
+           [["메시 + 정점 색상",          "✅", "✅"],
+            ["upAxis=Y / metersPerUnit=1.0", "종종 누락", "✅ 강제"],
+            ["Kind=component + assetInfo",  "✗", "✅"],
+            ["USDPhysics Collider (convex hull)",  "✗", "✅ 모든 메시"],
+            ["USDPhysics Mass (카테고리별 density)", "✗", "✅ steel/wood/Al/box 자동"],
+            ["USDPhysics Material (마찰·반발)", "✗", "✅ 기본값 주입"],
+            ["semanticLabel + 실측 mm 스케일", "✗", "✅"]])
+    _bullets(s, PInches(0.6), PInches(5.5), PInches(12), PInches(2), [
+        ("→", "Omniverse Kit 설치 불필요 — pxr (Blender 5.x 번들 USD Python) 만 사용"),
+        ("→", "옵션: aif-pipeline 설치된 환경에선 NVIDIA 공식 validator 자동 호출"),
+    ], size=13)
 
     # 19. 요약
     s = new()
