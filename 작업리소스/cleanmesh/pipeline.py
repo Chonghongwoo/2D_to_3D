@@ -70,6 +70,7 @@ class CleanMeshPipeline:
         dt_meta: dict | None = None,
         simready: bool = False,
         cancel_check=None,
+        disable_triposr_fallback: bool = False,
     ) -> dict:
         """
         Run the full CleanMesh pipeline.
@@ -126,9 +127,12 @@ class CleanMeshPipeline:
 
         # ─── Stage 2: Generation ───
         logger.info("━━━ Stage 2: 생성 ━━━")
-        gen_result = self._generate_persistent(decision, timestamp,
-                                                pre_masked=pre_masked,
-                                                cancel_check=cancel_check)
+        gen_result = self._generate_persistent(
+            decision, timestamp,
+            pre_masked=pre_masked,
+            cancel_check=cancel_check,
+            disable_triposr_fallback=disable_triposr_fallback,
+        )
         result["stages"]["generation"] = gen_result
 
         if not _is_ok(gen_result):
@@ -307,6 +311,7 @@ class CleanMeshPipeline:
         self, decision: RoutingDecision, timestamp: str,
         pre_masked: bool = False,
         cancel_check=None,
+        disable_triposr_fallback: bool = False,
     ) -> dict:
         """Run _generate in a persistent retry loop.
 
@@ -382,7 +387,8 @@ class CleanMeshPipeline:
                     f"   free VRAM: {vr.get('free_mb','?')} / {vr.get('total_mb','?')} MB"
                 )
 
-            last_result = self._generate(decision, timestamp, pre_masked=pre_masked)
+            last_result = self._generate(decision, timestamp, pre_masked=pre_masked,
+                                          disable_triposr_fallback=disable_triposr_fallback)
             if _is_ok(last_result):
                 if round_idx > 0:
                     last_result["persistent_round"] = round_idx + 1
@@ -395,8 +401,15 @@ class CleanMeshPipeline:
             logger.warning(f"❌ 라운드 {round_idx+1} 실패: {err_msg}")
             round_idx += 1
 
-    def _generate(self, decision: RoutingDecision, timestamp: str, pre_masked: bool = False) -> dict:
-        """Execute the generation step based on routing decision."""
+    def _generate(self, decision: RoutingDecision, timestamp: str,
+                  pre_masked: bool = False,
+                  disable_triposr_fallback: bool = False) -> dict:
+        """Execute the generation step based on routing decision.
+
+        ``disable_triposr_fallback``: when True, TRELLIS exhaustion returns
+        the original TRELLIS error AS-IS instead of silently routing to
+        TripoSR. Use this when output quality > guaranteed result.
+        """
         if decision.method == GenerationMethod.PROCEDURAL:
             return gen_procedural.generate(
                 template_name=decision.template_name,
@@ -427,6 +440,23 @@ class CleanMeshPipeline:
             # which peaks at ~2-3 GB and runs reliably on 8GB GPUs.
             # Quality is lower but the user gets a usable DT asset instead
             # of a failed job.
+            #
+            # Quality-critical use cases (industrial DT) can disable this
+            # via the disable_triposr_fallback flag — they get a clean
+            # TRELLIS error instead of a silently degraded 1MB stub.
+            if disable_triposr_fallback and self._trellis_exhausted_oom(result):
+                logger.warning(
+                    "⚠️ TRELLIS 모든 회복 단계 실패 — TripoSR fallback 비활성화됨 → 깨끗한 실패 리턴"
+                )
+                result["triposr_fallback_disabled"] = True
+                result["hint"] = (
+                    "8GB GPU + TRELLIS-image-large 한계. "
+                    "수동 조치: 시스템 재부팅 → 즉시 단일 이미지로 재시도. "
+                    "또는 무거운 앱(Chrome/Discord/Teams/OBS/Blender) 종료 후 재시도. "
+                    "TripoSR 자동 전환을 원하면 UI에서 '저품질 fallback 사용' 체크."
+                )
+                return result
+
             if self._trellis_exhausted_oom(result) and decision.image_paths:
                 logger.warning(
                     "⚠️ TRELLIS 모든 회복 단계 실패 — TripoSR로 자동 전환"

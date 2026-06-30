@@ -293,6 +293,16 @@
             </span>
           </label>
         </div>
+        <div class="seg-toggle-row" style="padding:6px 0 0;">
+          <input type="checkbox" id="dt-no-triposr" checked />
+          <label for="dt-no-triposr" style="font-size:12px;">
+            <b>고품질만</b> — TRELLIS 실패시 TripoSR로 자동 전환 <b>안 함</b>
+            <span style="display:block; font-size:11px; color:var(--muted); margin-top:2px;">
+              체크: TRELLIS OOM시 깨끗한 실패 (저품질 결과 방지).
+              해제: 무조건 결과 보장 (8GB GPU에선 TripoSR 1MB 결과 가능).
+            </span>
+          </label>
+        </div>
       </div>
     </div>
 
@@ -456,7 +466,8 @@ function getDtMeta() {
   const ser   = document.getElementById("dt-serial").value.trim();
   const fmt   = document.getElementById("dt-format").value;
   const simready = document.getElementById("dt-simready")?.checked || false;
-  const meta = { export_format: fmt, simready: simready };
+  const noTriposr = document.getElementById("dt-no-triposr")?.checked || false;
+  const meta = { export_format: fmt, simready: simready, disable_triposr_fallback: noTriposr };
   if (cat)  meta.category      = cat;
   if (mfg)  meta.manufacturer  = mfg;
   if (ser)  meta.serial_number = ser;
@@ -769,6 +780,7 @@ async function onGenerate() {
         dt_manufacturer: dtMeta.manufacturer || null,
         dt_serial:       dtMeta.serial_number || null,
         simready:        dtMeta.simready === true,
+        disable_triposr_fallback: dtMeta.disable_triposr_fallback === true,
       };
       const r = await fetch(`${API}/generate-segmented`, {
         method: "POST",
@@ -796,6 +808,7 @@ async function onGenerate() {
       if (dtMeta.manufacturer)  fd.append("dt_manufacturer", dtMeta.manufacturer);
       if (dtMeta.serial_number) fd.append("dt_serial", dtMeta.serial_number);
       if (dtMeta.simready === true) fd.append("simready", "true");
+      if (dtMeta.disable_triposr_fallback === true) fd.append("disable_triposr_fallback", "true");
       if (name) fd.append("object_name", name);
       if (desc) fd.append("description", desc);
       const r = await fetch(`${API}/generate-multi`, { method: "POST", body: fd });
@@ -819,6 +832,7 @@ async function onGenerate() {
       if (dtMeta.manufacturer)  fd.append("dt_manufacturer", dtMeta.manufacturer);
       if (dtMeta.serial_number) fd.append("dt_serial", dtMeta.serial_number);
       if (dtMeta.simready === true) fd.append("simready", "true");
+      if (dtMeta.disable_triposr_fallback === true) fd.append("disable_triposr_fallback", "true");
       if (name) fd.append("object_name", name);
       if (desc) fd.append("description", desc);
       const r = await fetch(`${API}/generate`, { method: "POST", body: fd });

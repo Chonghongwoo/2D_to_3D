@@ -132,6 +132,7 @@ async def generate(
     dt_manufacturer: Optional[str] = Form(None),
     dt_serial: Optional[str] = Form(None),
     simready: bool = Form(False),
+    disable_triposr_fallback: bool = Form(False),
 ):
     """
     Generate a 3D model from an uploaded image.
@@ -182,6 +183,7 @@ async def generate(
         export_format,
         dt_meta,
         simready,
+        disable_triposr_fallback,
     )
 
     return {"job_id": job_id, "status": "queued", "message": "파이프라인 시작됨"}
@@ -404,6 +406,7 @@ async def generate_multi(
     dt_manufacturer: Optional[str] = Form(None),
     dt_serial: Optional[str] = Form(None),
     simready: bool = Form(False),
+    disable_triposr_fallback: bool = Form(False),
 ):
     """Multi-image generation (routes to TRELLIS_MULTI when >=2 images)."""
     if not files:
@@ -450,6 +453,7 @@ async def generate_multi(
         export_format,
         dt_meta,
         simready,
+        disable_triposr_fallback,
     )
 
     return {"job_id": job_id, "status": "queued", "image_count": len(image_paths)}
@@ -497,6 +501,7 @@ def _run_pipeline_job(
     color_mode="vertex", color_k=4,
     color_smooth_iters=2, color_label_smooth_iters=1, color_min_region_size=30,
     export_format="glb", dt_meta=None, simready=False,
+    disable_triposr_fallback=False,
 ):
     """Run the full pipeline in a background thread."""
     try:
@@ -520,6 +525,7 @@ def _run_pipeline_job(
             export_format=export_format,
             dt_meta=dt_meta,
             simready=simready,
+            disable_triposr_fallback=disable_triposr_fallback,
             cancel_check=lambda: bool(jobs.get(job_id, {}).get("cancel_requested")),
         )
 
@@ -545,6 +551,7 @@ def _run_pipeline_job_multi(
     color_mode="vertex", color_k=4,
     color_smooth_iters=2, color_label_smooth_iters=1, color_min_region_size=30,
     export_format="glb", dt_meta=None, simready=False,
+    disable_triposr_fallback=False,
 ):
     """Multi-image variant — uses image_paths kwarg so router picks TRELLIS_MULTI."""
     try:
@@ -568,6 +575,7 @@ def _run_pipeline_job_multi(
             export_format=export_format,
             dt_meta=dt_meta,
             simready=simready,
+            disable_triposr_fallback=disable_triposr_fallback,
             cancel_check=lambda: bool(jobs.get(job_id, {}).get("cancel_requested")),
         )
 
@@ -827,6 +835,7 @@ async def generate_segmented(payload: dict):
         str(payload.get("export_format", "glb")),
         dt_meta,
         bool(payload.get("simready", False)),
+        bool(payload.get("disable_triposr_fallback", False)),
     )
 
     return {"job_id": job_id, "status": "queued", "image_count": len(cutout_paths), "pre_masked": True}
@@ -839,6 +848,7 @@ def _run_pipeline_job_segmented(
     color_mode="vertex", color_k=4,
     color_smooth_iters=2, color_label_smooth_iters=1, color_min_region_size=30,
     export_format="glb", dt_meta=None, simready=False,
+    disable_triposr_fallback=False,
 ):
     """Pipeline runner that flags inputs as pre-masked (SAM2 cutouts)."""
     try:
@@ -862,6 +872,7 @@ def _run_pipeline_job_segmented(
             export_format=export_format,
             dt_meta=dt_meta,
             simready=simready,
+            disable_triposr_fallback=disable_triposr_fallback,
             cancel_check=lambda: bool(jobs.get(job_id, {}).get("cancel_requested")),
         )
         gen = (result.get("stages") or {}).get("generation") or {}
