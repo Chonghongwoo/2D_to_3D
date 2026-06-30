@@ -293,22 +293,20 @@ def generate(
         is_last_attempt = (attempt_idx == len(_MAX_DIM_LADDER) - 1)
         logger.warning(
             f"⚠️ TRELLIS OOM (max_dim={max_dim}) — "
-            f"{'마지막 시도였음' if is_last_attempt else '복구 후 재시도'}"
+            f"{'리졸루션 ladder 소진' if is_last_attempt else '복구 후 재시도'}"
         )
         recovery_log.append({
             "phase": f"attempt_{attempt_idx+1}_oom",
             "max_dim": max_dim,
         })
 
-        if is_last_attempt or not vram_auto_recover:
+        # If auto-recovery is OFF, return immediately. Otherwise, run WSL
+        # shutdown between every attempt INCLUDING the last (single-view
+        # fallback below benefits from a clean VRAM state).
+        if not vram_auto_recover:
             last_error["vram_recovery"] = recovery_log
-            last_error.setdefault("message", "OOM")
-            last_error["message"] = f"OOM after {attempt_idx+1} attempts: " + str(
-                last_error.get("message", "")
-            )
             return last_error
 
-        # Recovery: wsl shutdown (always) + optional kill hogs
         r = wsl_shutdown()
         recovery_log.append({"phase": "recover", **r})
         after = get_vram_summary()
