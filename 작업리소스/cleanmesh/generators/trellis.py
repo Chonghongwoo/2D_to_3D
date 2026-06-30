@@ -119,13 +119,26 @@ def _run_trellis_once(sanitized: List[Path], raw_workdir_out: Path,
                        seed: int, steps_ss: int, steps_slat: int,
                        cfg_ss: float, cfg_slat: float, model: str,
                        pre_masked: bool, deterministic: bool,
-                       timeout_s: int) -> tuple[dict | None, str, str, int]:
-    """One TRELLIS invocation. Returns (parsed_or_None, stdout, stderr, rc)."""
+                       timeout_s: int,
+                       expandable_segments: bool = True
+                       ) -> tuple[dict | None, str, str, int]:
+    """One TRELLIS invocation. Returns (parsed_or_None, stdout, stderr, rc).
+
+    ``expandable_segments``: when True (default), exports
+    PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True into the WSL bash
+    environment. This is PyTorch's official fragmentation mitigation
+    and is essential on 8GB GPUs where free VRAM exists but no
+    contiguous 1+ GiB block is available.
+    """
     wsl_inputs = " ".join(f'"{_to_wsl_path(p)}"' for p in sanitized)
     wsl_out = _to_wsl_path(raw_workdir_out)
     pre_masked_flag = " --pre-masked" if pre_masked else ""
     deterministic_flag = " --deterministic" if deterministic else ""
+    env_prefix = ""
+    if expandable_segments:
+        env_prefix = "export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True && "
     bash_cmd = (
+        f"{env_prefix}"
         f"source {WSL_VENV_ACTIVATE} && "
         f"python {WSL_RUNNER} --inputs {wsl_inputs} --output \"{wsl_out}\" "
         f"--seed {seed} --steps-ss {steps_ss} --steps-slat {steps_slat} "
@@ -303,6 +316,53 @@ def generate(
             f"🔄 WSL shutdown 완료 → free VRAM "
             f"{after.get('free_mb','?')} / {after.get('total_mb','?')} MB"
         )
+
+    # ────────────────────────────────────────────────────────────────
+    # All max_dim ladder attempts exhausted at the original image count.
+    # Last-ditch fallback for 8GB GPUs: if input was multi-view, drop
+    # to single-view (first image only). TRELLIS-image-large single is
+    # known to fit in ~5GB peak; multi-view needs ~7-8GB contiguous.
+    # ────────────────────────────────────────────────────────────────
+    if vram_auto_recover and len(image_paths) > 1:
+        logger.warning(
+            f"⚠️ 멀티뷰 {len(image_paths)}장 모두 OOM — 첫 이미지만으로 단일뷰 fallback"
+        )
+        recovery_log.append({
+            "phase": "fallback_single_view",
+            "dropped_image_count": len(image_paths) - 1,
+            "kept": image_paths[0],
+        })
+        wsl_shutdown()
+        try:
+            sanitized = _sanitize_inputs(
+                [image_paths[0]], preserve_alpha=pre_masked, max_dim=1024,
+            )
+        except Exception as e:
+            return {"status": "error", "message": f"input prep failed: {e}",
+                    "vram_recovery": recovery_log}
+
+        logger.info(f"🧠 TRELLIS 단일뷰 fallback: {Path(image_paths[0]).name}")
+        parsed, stdout, stderr, rc = _run_trellis_once(
+            sanitized, raw_workdir_out,
+            seed, steps_ss, steps_slat, cfg_ss, cfg_slat, model,
+            pre_masked, deterministic,
+            timeout_s=config.trellis.timeout_seconds,
+        )
+        if parsed and parsed.get("status") == "success":
+            src_path = Path(raw_workdir_out)
+            if src_path.is_file():
+                Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(str(src_path), output_path)
+                parsed["output_path"] = output_path
+                parsed["vram_recovery"] = recovery_log
+                parsed["max_dim_used"] = 1024
+                parsed["fallback_to_single_view"] = True
+                logger.info("✅ 단일뷰 fallback 성공")
+                return parsed
+        # single-view also failed
+        recovery_log.append({"phase": "fallback_single_view_failed"})
+        if parsed:
+            last_error = parsed
 
     # Should not reach here, but for completeness
     if last_error is None:
