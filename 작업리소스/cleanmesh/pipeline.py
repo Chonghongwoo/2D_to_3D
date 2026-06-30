@@ -287,13 +287,21 @@ class CleanMeshPipeline:
     # ────────────────────────────────────────────────────────────────
     _ESCALATION_LADDER = [
         # (label, also_browsers, also_blender, wait_before_s)
-        ("standard",              False, False,  0),
-        ("kill_browsers",          True, False, 10),
-        ("kill_browsers+blender",  True,  True, 15),
+        # NOTE: also_browsers is INTENTIONALLY False on every tier.
+        # The CleanMesh UI runs in the user's Chrome/Edge/etc — auto-killing
+        # browsers closes the user's own page mid-job. Browsers are
+        # foreground apps; user must close them manually if they want that
+        # extra VRAM headroom. We DO kill msedgewebview2 (Electron webview
+        # engine used by Discord/Slack/Teams) since that's a background hog.
+        ("standard",         False, False,  0),
+        ("longer_wait",      False, False, 20),
+        ("with_blender",     False,  True, 30),
     ]
     # Waits for round N+ (after ladder exhausted) — sec. Last value
-    # repeats forever (capped).
-    _POST_LADDER_WAITS = [30, 60, 90, 120]
+    # repeats forever (capped). Keeps going indefinitely so external state
+    # changes (user closing apps, system memory freeing) can break the
+    # deadlock without killing the user's UI.
+    _POST_LADDER_WAITS = [60, 90, 120]
 
     def _generate_persistent(
         self, decision: RoutingDecision, timestamp: str,
