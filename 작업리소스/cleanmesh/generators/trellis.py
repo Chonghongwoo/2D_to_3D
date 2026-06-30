@@ -78,12 +78,20 @@ def _sanitize_inputs(image_paths: List[str], preserve_alpha: bool = False,
     return sanitized
 
 
-# OOM detection — strings that appear in TRELLIS / PyTorch stderr on OOM
+# OOM detection — strings that appear in TRELLIS / PyTorch / cumm / CUDA
+# error output on OOM. Matched CASE-INSENSITIVELY against stdout + stderr +
+# parsed.message because OOM bubbles up from several CUDA-adjacent libs:
+#   • PyTorch       → "CUDA out of memory"
+#   • cumm (TensorRT helper) → "cuda failed with error 2 out of memory"
+#   • cuBLAS/cuDNN  → "CUBLAS_STATUS_ALLOC_FAILED"
+#   • raw CUDA      → "cudaErrorMemoryAllocation", "out of memory"
 _OOM_NEEDLES = (
-    "CUDA out of memory",
-    "OutOfMemoryError",
-    "CUBLAS_STATUS_ALLOC_FAILED",
-    "CUDA error: out of memory",
+    "out of memory",                  # catches the cumm + most others
+    "outofmemoryerror",
+    "cublas_status_alloc_failed",
+    "cuda error: out of memory",
+    "cudaerrormemoryallocation",
+    "cuda failed with error 2",       # cumm-specific error code 2
 )
 
 # Adaptive resolution ladder for OOM retries
@@ -96,10 +104,14 @@ _MIN_FREE_VRAM_MB = 4000
 
 
 def _looks_like_oom(stdout: str, stderr: str, parsed: dict | None) -> bool:
-    """Detect OOM from any of: stderr, stdout, or parsed result.message."""
-    haystack = (stderr or "") + "\n" + (stdout or "")
+    """Detect OOM from any of: stderr, stdout, or parsed result.message.
+
+    Case-insensitive match — OOM messages come from many CUDA-adjacent
+    libs in inconsistent casing (CUDA / cuda, OutOfMemory / out of memory).
+    """
+    haystack = ((stderr or "") + "\n" + (stdout or "")).lower()
     if parsed and isinstance(parsed.get("message"), str):
-        haystack += "\n" + parsed["message"]
+        haystack += "\n" + parsed["message"].lower()
     return any(needle in haystack for needle in _OOM_NEEDLES)
 
 
