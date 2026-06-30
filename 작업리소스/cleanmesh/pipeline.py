@@ -290,12 +290,50 @@ class CleanMeshPipeline:
                 **kwargs,
             )
         elif decision.method in (GenerationMethod.TRELLIS_SINGLE, GenerationMethod.TRELLIS_MULTI):
-            return gen_trellis.generate(
+            result = gen_trellis.generate(
                 image_paths=decision.image_paths or [],
                 pre_masked=pre_masked,
             )
+
+            # TripoSR fallback — if TRELLIS exhausted every recovery tier
+            # (max_dim ladder → single-view → kill_hogs), drop to TripoSR
+            # which peaks at ~2-3 GB and runs reliably on 8GB GPUs.
+            # Quality is lower but the user gets a usable DT asset instead
+            # of a failed job.
+            if self._trellis_exhausted_oom(result) and decision.image_paths:
+                logger.warning(
+                    "⚠️ TRELLIS 모든 회복 단계 실패 — TripoSR로 자동 전환"
+                )
+                triposr_result = gen_triposr.generate(
+                    image_path=decision.image_paths[0],
+                    remove_bg=not pre_masked,
+                )
+                if triposr_result.get("status") == "success":
+                    triposr_result["fallback_from_trellis"] = True
+                    triposr_result["trellis_recovery_log"] = result.get("vram_recovery")
+                    logger.info("✅ TripoSR fallback 성공 — DT 자산 생성됨")
+                    return triposr_result
+                # Both failed — keep original TRELLIS error (more informative)
+                result["triposr_fallback_also_failed"] = True
+                result["triposr_error"] = triposr_result.get("message")
+
+            return result
         else:
             return {"status": "error", "message": f"Unknown method: {decision.method}"}
+
+    @staticmethod
+    def _trellis_exhausted_oom(result: dict) -> bool:
+        """Detect 'TRELLIS ran every recovery tier and still failed with OOM'."""
+        if not result or result.get("status") != "error":
+            return False
+        log = result.get("vram_recovery") or []
+        # The last entry is fallback_single_view_failed_oom with after_kill_hogs=True
+        # when all 5 tiers have been exhausted.
+        for entry in reversed(log):
+            if (entry.get("phase", "").startswith("fallback_single_view_failed")
+                    and entry.get("after_kill_hogs") is True):
+                return True
+        return False
 
     def _cleanup(
         self,

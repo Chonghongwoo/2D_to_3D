@@ -850,10 +850,40 @@ async function onGenerate() {
         logLine(`⏳ 실행 중… (${elapsed}s)`);
       } else if (d.status === "completed") {
         logLine(`✅ 완료! (${elapsed}s)`, "ok");
+        // Surface fallbacks so the user knows what actually happened
+        const gen = d.result?.stages?.generation || {};
+        if (gen.fallback_from_trellis) {
+          logLine(`ℹ️ TRELLIS 5단계 회복 모두 실패 → TripoSR로 자동 전환됨 (품질 약간 낮음)`, "info");
+        } else if (gen.fallback_to_single_view) {
+          logLine(`ℹ️ 멀티뷰 OOM → 첫 이미지만으로 단일뷰 fallback 성공`, "info");
+        } else if (gen.killed_gpu_hogs) {
+          logLine(`ℹ️ GPU 점유 앱 자동 종료 후 성공`, "info");
+        }
         showResult(d);
         break;
       } else if (d.status === "failed") {
         logLine(`❌ 실패: ${d.error || "unknown"}`, "err");
+        // Concrete recovery hint when TRELLIS exhausted everything
+        const gen = d.result?.stages?.generation || {};
+        if (gen.hint) {
+          logLine(`💡 ${gen.hint}`, "info");
+        }
+        if (gen.triposr_fallback_also_failed) {
+          logLine(`⚠️ TripoSR 백업도 실패: ${gen.triposr_error || ''}`, "err");
+        }
+        const recoveryLog = gen.vram_recovery;
+        if (Array.isArray(recoveryLog) && recoveryLog.length > 0) {
+          const tiers = recoveryLog.filter(e => e.phase?.startsWith("attempt_") || e.phase?.startsWith("fallback")).length;
+          logLine(`🔧 시도된 자동 회복 단계: ${tiers}회`, "info");
+          // Suggest manual cleanup when even kill_hogs fails
+          const killedHogsButFailed = recoveryLog.some(
+            e => e.phase === "fallback_single_view_failed_oom" && e.after_kill_hogs === true
+          );
+          if (killedHogsButFailed) {
+            logLine(`💡 권장 수동 조치: Chrome 모든 탭 / Blender / OBS 종료 후 재시도`, "info");
+            logLine(`   또는 단일 이미지로 다시 시도하면 성공 확률 ↑`, "info");
+          }
+        }
         break;
       }
     } catch (e) {
