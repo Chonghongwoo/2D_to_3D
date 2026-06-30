@@ -841,15 +841,39 @@ async function onGenerate() {
     return;
   }
 
-  // Poll status
+  // Poll status — robust against transient fetch failures.
+  // Under heavy system memory pressure, browser fetch can timeout
+  // even when the server is fine. We retry per-poll up to 5x with
+  // 2s backoff, and only treat sustained failures as fatal.
   currentJob = jobId;
   const start = Date.now();
+  let consecutiveFetchErrors = 0;
+  const MAX_FETCH_ERRORS = 5;
   while (true) {
-    await new Promise(r => setTimeout(r, 1500));
+    await new Promise(r => setTimeout(r, 3000));   // longer interval — less browser load
+    let d = null;
+    let fetchErr = null;
     try {
-      const r = await fetch(`${API}/status/${jobId}`);
-      const d = await r.json();
-      const elapsed = ((Date.now() - start) / 1000).toFixed(0);
+      // 15s timeout per fetch — gives slow server enough room
+      const ctrl = new AbortController();
+      const to = setTimeout(() => ctrl.abort(), 15000);
+      const r = await fetch(`${API}/status/${jobId}`, { signal: ctrl.signal });
+      clearTimeout(to);
+      d = await r.json();
+      consecutiveFetchErrors = 0;
+    } catch (e) {
+      fetchErr = e;
+      consecutiveFetchErrors++;
+    }
+    const elapsed = ((Date.now() - start) / 1000).toFixed(0);
+    if (fetchErr) {
+      if (consecutiveFetchErrors >= MAX_FETCH_ERRORS) {
+        logLine(`상태 확인 ${MAX_FETCH_ERRORS}회 연속 실패 — polling 중단 (서버에서 작업은 계속됨, 새로고침 후 재폴링)`, "err");
+        break;
+      }
+      logLine(`⚠️ 상태 확인 일시 실패 (${consecutiveFetchErrors}/${MAX_FETCH_ERRORS}) — 재시도…`, "info");
+      continue;
+    }
       if (d.status === "running") {
         logLine(`⏳ 실행 중… (${elapsed}s)`);
       } else if (d.status === "completed") {
@@ -901,10 +925,6 @@ async function onGenerate() {
         }
         break;
       }
-    } catch (e) {
-      logLine(`상태 확인 오류: ${e}`, "err");
-      break;
-    }
   }
   btn.disabled = false;
   const cancelBtnEnd = document.getElementById("cancel-btn");
