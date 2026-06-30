@@ -32,7 +32,8 @@ def _to_wsl_path(p) -> str:
     return p
 
 
-def _sanitize_inputs(image_paths: List[str], preserve_alpha: bool = False) -> List[Path]:
+def _sanitize_inputs(image_paths: List[str], preserve_alpha: bool = False,
+                     max_dim: int = 1024) -> List[Path]:
     """Re-save each input as in_NN.png in HOST_WORKDIR/inputs with ASCII names.
 
     This avoids passing korean/space paths through `wsl -- bash -c` quoting,
@@ -41,15 +42,15 @@ def _sanitize_inputs(image_paths: List[str], preserve_alpha: bool = False) -> Li
     When ``preserve_alpha`` is True, inputs with an alpha channel are kept as
     RGBA (used when SAM2 has already masked the subject). Otherwise images are
     flattened to RGB.
+
+    ``max_dim`` caps the longer side. Default 1024 fits 8GB GPUs; the OOM
+    retry path drops it to 768 / 512 to claw back VRAM headroom.
     """
     from PIL import Image
     in_dir = HOST_WORKDIR / "inputs"
     in_dir.mkdir(parents=True, exist_ok=True)
 
-    # Hard cap on input dimensions — TRELLIS internally rescales to 518x518,
-    # but unscaled 1500+px images blow up peak VRAM during preprocessing.
-    # Cap the LONGER side at 1024 to keep memory headroom on 8GB GPUs.
-    MAX_DIM = 1024
+    MAX_DIM = max_dim
 
     sanitized = []
     for i, raw in enumerate(image_paths):
@@ -77,51 +78,37 @@ def _sanitize_inputs(image_paths: List[str], preserve_alpha: bool = False) -> Li
     return sanitized
 
 
-def generate(
-    image_paths: List[str],
-    output_path: Optional[str] = None,
-    seed: int = 1,
-    steps_ss: int = 12,
-    steps_slat: int = 12,
-    cfg_ss: float = 7.5,
-    cfg_slat: float = 3.0,
-    model: str = "microsoft/TRELLIS-image-large",
-    pre_masked: bool = False,
-    deterministic: bool = False,  # OFF by default — RTX 3070 8GB hits OOM
-) -> dict:
-    """Generate a 3D model from 1+ images via TRELLIS (in WSL).
+# OOM detection — strings that appear in TRELLIS / PyTorch stderr on OOM
+_OOM_NEEDLES = (
+    "CUDA out of memory",
+    "OutOfMemoryError",
+    "CUBLAS_STATUS_ALLOC_FAILED",
+    "CUDA error: out of memory",
+)
 
-    Args:
-        image_paths: Input images. May be RGB or RGBA.
-        pre_masked: When True, treat inputs as already having a clean alpha
-            channel (e.g. produced by SAM2 click-segment). Tells the WSL runner
-            to bypass TRELLIS's built-in rembg preprocessing.
-        deterministic: Force PyTorch/CUDA into deterministic mode. Slower
-            (~30-50%) but same input + seed reproduces the same mesh.
+# Adaptive resolution ladder for OOM retries
+_MAX_DIM_LADDER = [1024, 768, 512]
 
-    Returns dict with status ('success' | 'error'), output_path, etc.
-    """
-    config = get_config()
+# Minimum free VRAM (MiB) we want before kicking off TRELLIS.
+# Empirically TRELLIS-image-large needs ~5 GB peak; pre-flight at 4 GB
+# gives ~1 GB headroom for fragmentation.
+_MIN_FREE_VRAM_MB = 4000
 
-    if not image_paths:
-        return {"status": "error", "message": "TRELLIS requires at least one input image"}
 
-    # Sanitize → ASCII-named copies under D:\trellis\_workdir\inputs\
-    try:
-        sanitized = _sanitize_inputs(image_paths, preserve_alpha=pre_masked)
-    except Exception as e:
-        return {"status": "error", "message": f"input prep failed: {e}"}
+def _looks_like_oom(stdout: str, stderr: str, parsed: dict | None) -> bool:
+    """Detect OOM from any of: stderr, stdout, or parsed result.message."""
+    haystack = (stderr or "") + "\n" + (stdout or "")
+    if parsed and isinstance(parsed.get("message"), str):
+        haystack += "\n" + parsed["message"]
+    return any(needle in haystack for needle in _OOM_NEEDLES)
 
-    # Resolve output paths
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    raw_workdir_out = HOST_WORKDIR / "outputs" / f"trellis_{timestamp}.glb"
-    raw_workdir_out.parent.mkdir(parents=True, exist_ok=True)
 
-    if not output_path:
-        output_path = str(config.paths.raw_dir / f"trellis_{timestamp}.glb")
-    output_path = str(output_path)
-
-    # Build the WSL command. Quote each input individually.
+def _run_trellis_once(sanitized: List[Path], raw_workdir_out: Path,
+                       seed: int, steps_ss: int, steps_slat: int,
+                       cfg_ss: float, cfg_slat: float, model: str,
+                       pre_masked: bool, deterministic: bool,
+                       timeout_s: int) -> tuple[dict | None, str, str, int]:
+    """One TRELLIS invocation. Returns (parsed_or_None, stdout, stderr, rc)."""
     wsl_inputs = " ".join(f'"{_to_wsl_path(p)}"' for p in sanitized)
     wsl_out = _to_wsl_path(raw_workdir_out)
     pre_masked_flag = " --pre-masked" if pre_masked else ""
@@ -134,25 +121,18 @@ def generate(
         f"{pre_masked_flag}{deterministic_flag}"
     )
     cmd = ["wsl", "-d", WSL_DISTRO, "--", "bash", "-c", bash_cmd]
-
-    logger.info(f"🧠 TRELLIS 생성: {len(sanitized)}장 → {raw_workdir_out.name}")
     logger.debug(f"WSL cmd: {bash_cmd}")
 
     try:
         cp = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=config.trellis.timeout_seconds,
-            encoding="utf-8",
-            errors="replace",
+            cmd, capture_output=True, text=True,
+            timeout=timeout_s, encoding="utf-8", errors="replace",
         )
     except subprocess.TimeoutExpired:
-        return {"status": "error", "message": f"TRELLIS timed out after {config.trellis.timeout_seconds}s"}
+        return None, "", f"timeout after {timeout_s}s", -1
     except FileNotFoundError:
-        return {"status": "error", "message": "wsl executable not found in PATH"}
+        return None, "", "wsl executable not found in PATH", -1
 
-    # Parse RESULT: line from runner
     parsed = None
     for line in cp.stdout.split("\n"):
         line = line.strip()
@@ -162,28 +142,161 @@ def generate(
                 break
             except json.JSONDecodeError:
                 pass
+    return parsed, cp.stdout, cp.stderr, cp.returncode
 
-    if parsed is None:
-        return {
+
+def generate(
+    image_paths: List[str],
+    output_path: Optional[str] = None,
+    seed: int = 1,
+    steps_ss: int = 12,
+    steps_slat: int = 12,
+    cfg_ss: float = 7.5,
+    cfg_slat: float = 3.0,
+    model: str = "microsoft/TRELLIS-image-large",
+    pre_masked: bool = False,
+    deterministic: bool = False,  # OFF by default — RTX 3070 8GB hits OOM
+    vram_auto_recover: bool = True,
+    vram_kill_hogs: bool = False,
+) -> dict:
+    """Generate a 3D model from 1+ images via TRELLIS (in WSL).
+
+    Args:
+        image_paths: Input images. May be RGB or RGBA.
+        pre_masked: When True, treat inputs as already having a clean alpha
+            channel (e.g. produced by SAM2 click-segment). Tells the WSL runner
+            to bypass TRELLIS's built-in rembg preprocessing.
+        deterministic: Force PyTorch/CUDA into deterministic mode. Slower
+            (~30-50%) but same input + seed reproduces the same mesh.
+        vram_auto_recover: When True (default), pre-flight VRAM check + on OOM
+            run `wsl --shutdown`, drop image resolution one step
+            (1024 → 768 → 512), and retry up to 3 attempts total.
+        vram_kill_hogs: When True, also kill known GPU-hog Windows apps
+            (Discord, Teams, OBS, NVIDIA Share, Razer) during recovery.
+            Default OFF — opt-in only since it terminates user apps.
+
+    Returns dict with status ('success' | 'error'), output_path, etc.,
+    plus a 'vram_recovery' field summarizing any recovery actions taken.
+    """
+    config = get_config()
+    from ..vram_guard import ensure_vram_available, wsl_shutdown, get_vram_summary
+
+    if not image_paths:
+        return {"status": "error", "message": "TRELLIS requires at least one input image"}
+
+    # Pre-flight VRAM check
+    recovery_log = []
+    if vram_auto_recover:
+        pre = ensure_vram_available(
+            min_free_mb=_MIN_FREE_VRAM_MB,
+            wait_timeout_s=15,
+            allow_wsl_shutdown=True,
+            allow_kill_hogs=vram_kill_hogs,
+        )
+        recovery_log.append({"phase": "pre_flight", **pre})
+        if not pre.get("ok"):
+            logger.warning(
+                f"⚠️ VRAM pre-flight: 확보 못함 "
+                f"(free={pre.get('free_mb')} MB, need={_MIN_FREE_VRAM_MB} MB) — 그래도 시도"
+            )
+        else:
+            logger.info(f"✅ VRAM pre-flight OK (free={pre.get('free_mb')} MB)")
+
+    # Resolve output paths (timestamp picked ONCE for the whole retry session)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    raw_workdir_out = HOST_WORKDIR / "outputs" / f"trellis_{timestamp}.glb"
+    raw_workdir_out.parent.mkdir(parents=True, exist_ok=True)
+    if not output_path:
+        output_path = str(config.paths.raw_dir / f"trellis_{timestamp}.glb")
+    output_path = str(output_path)
+
+    # Retry loop with adaptive resolution
+    last_error = None
+    for attempt_idx, max_dim in enumerate(_MAX_DIM_LADDER):
+        try:
+            sanitized = _sanitize_inputs(
+                image_paths, preserve_alpha=pre_masked, max_dim=max_dim,
+            )
+        except Exception as e:
+            return {"status": "error", "message": f"input prep failed: {e}",
+                    "vram_recovery": recovery_log}
+
+        attempt_label = (
+            f"시도 {attempt_idx+1}/{len(_MAX_DIM_LADDER)}"
+            f" (max_dim={max_dim})"
+        )
+        logger.info(f"🧠 TRELLIS {attempt_label}: {len(sanitized)}장 → {raw_workdir_out.name}")
+
+        parsed, stdout, stderr, rc = _run_trellis_once(
+            sanitized, raw_workdir_out,
+            seed, steps_ss, steps_slat, cfg_ss, cfg_slat, model,
+            pre_masked, deterministic,
+            timeout_s=config.trellis.timeout_seconds,
+        )
+
+        # Detect outcome
+        if parsed and parsed.get("status") == "success":
+            # Copy out and return
+            src_path = Path(raw_workdir_out)
+            if not src_path.is_file():
+                return {"status": "error",
+                        "message": f"runner reported success but no file at {src_path}",
+                        "vram_recovery": recovery_log}
+            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(str(src_path), output_path)
+            parsed["output_path"] = output_path
+            parsed["vram_recovery"] = recovery_log
+            parsed["max_dim_used"] = max_dim
+            return parsed
+
+        # Was this an OOM? Decide whether to retry.
+        was_oom = _looks_like_oom(stdout, stderr, parsed)
+        last_error = parsed or {
             "status": "error",
-            "message": f"TRELLIS produced no RESULT (exit {cp.returncode})",
-            "stdout_tail": cp.stdout[-2000:],
-            "stderr_tail": cp.stderr[-2000:],
+            "message": f"TRELLIS exit={rc}",
+            "stdout_tail": (stdout or "")[-1500:],
+            "stderr_tail": (stderr or "")[-1500:],
         }
 
-    if parsed.get("status") != "success":
-        return parsed
+        if not was_oom:
+            # Non-OOM failure (e.g. bad input, model error) — don't retry
+            logger.warning("❌ TRELLIS 실패 (OOM 아님) — 재시도 안함")
+            last_error["vram_recovery"] = recovery_log
+            return last_error
 
-    # Copy raw_workdir_out → output_path (different drives may need full copy)
-    src_path = Path(raw_workdir_out)
-    if not src_path.is_file():
-        return {"status": "error", "message": f"runner reported success but no file at {src_path}"}
+        # OOM detected
+        is_last_attempt = (attempt_idx == len(_MAX_DIM_LADDER) - 1)
+        logger.warning(
+            f"⚠️ TRELLIS OOM (max_dim={max_dim}) — "
+            f"{'마지막 시도였음' if is_last_attempt else '복구 후 재시도'}"
+        )
+        recovery_log.append({
+            "phase": f"attempt_{attempt_idx+1}_oom",
+            "max_dim": max_dim,
+        })
 
-    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(str(src_path), output_path)
+        if is_last_attempt or not vram_auto_recover:
+            last_error["vram_recovery"] = recovery_log
+            last_error.setdefault("message", "OOM")
+            last_error["message"] = f"OOM after {attempt_idx+1} attempts: " + str(
+                last_error.get("message", "")
+            )
+            return last_error
 
-    parsed["output_path"] = output_path
-    return parsed
+        # Recovery: wsl shutdown (always) + optional kill hogs
+        r = wsl_shutdown()
+        recovery_log.append({"phase": "recover", **r})
+        after = get_vram_summary()
+        logger.info(
+            f"🔄 WSL shutdown 완료 → free VRAM "
+            f"{after.get('free_mb','?')} / {after.get('total_mb','?')} MB"
+        )
+
+    # Should not reach here, but for completeness
+    if last_error is None:
+        last_error = {"status": "error", "message": "unknown failure"}
+    last_error["vram_recovery"] = recovery_log
+    return last_error
 
 
 def check_available() -> bool:

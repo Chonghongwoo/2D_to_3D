@@ -340,7 +340,13 @@
 </main>
 
 <script>
-const API = "/api";
+// Resolve API base safely even when page is opened via file:// or proxied.
+// "/api" only works when the page is served from http(s)://; on file://
+// the browser cannot resolve the relative path and fetch throws
+// "Failed to parse URL". In that case we fall back to localhost:8100.
+const API = (window.location.protocol === "file:")
+  ? "http://localhost:8100/api"
+  : (window.location.origin + "/api");
 let currentFiles = [];
 let currentJob = null;
 
