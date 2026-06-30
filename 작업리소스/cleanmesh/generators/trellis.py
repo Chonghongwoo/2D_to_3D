@@ -321,6 +321,60 @@ def generate(
     # to single-view (first image only). TRELLIS-image-large single is
     # known to fit in ~5GB peak; multi-view needs ~7-8GB contiguous.
     # ────────────────────────────────────────────────────────────────
+    from ..vram_guard import kill_known_gpu_hogs
+    import time
+
+    def _try_single_view(after_kill_hogs: bool) -> dict | None:
+        """Run a single-image TRELLIS attempt. Returns parsed on success."""
+        try:
+            sanitized = _sanitize_inputs(
+                [image_paths[0]], preserve_alpha=pre_masked, max_dim=1024,
+            )
+        except Exception as e:
+            recovery_log.append({"phase": "fallback_input_prep_failed", "error": str(e)})
+            return None
+        # Wait a bit for driver to settle after wsl shutdown / kills
+        time.sleep(5.0)
+        logger.info(
+            f"🧠 TRELLIS 단일뷰 fallback "
+            f"({'kill_hogs+' if after_kill_hogs else ''}): {Path(image_paths[0]).name}"
+        )
+        parsed, stdout, stderr, rc = _run_trellis_once(
+            sanitized, raw_workdir_out,
+            seed, steps_ss, steps_slat, cfg_ss, cfg_slat, model,
+            pre_masked, deterministic,
+            timeout_s=config.trellis.timeout_seconds,
+        )
+        if parsed and parsed.get("status") == "success":
+            return parsed
+        # Mark whether this attempt OOMed too
+        is_oom = _looks_like_oom(stdout, stderr, parsed)
+        recovery_log.append({
+            "phase": "fallback_single_view_failed"
+                     + ("_oom" if is_oom else "_other"),
+            "after_kill_hogs": after_kill_hogs,
+            "error_tail": (parsed or {}).get("message", "")[-300:]
+                          if parsed else (stderr or "")[-300:],
+        })
+        return None
+
+    def _commit_success(parsed: dict, single_view: bool, killed_hogs: bool) -> dict:
+        src_path = Path(raw_workdir_out)
+        if not src_path.is_file():
+            return {"status": "error",
+                    "message": f"runner reported success but no file at {src_path}",
+                    "vram_recovery": recovery_log}
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(str(src_path), output_path)
+        parsed["output_path"] = output_path
+        parsed["vram_recovery"] = recovery_log
+        parsed["max_dim_used"] = 1024
+        if single_view:
+            parsed["fallback_to_single_view"] = True
+        if killed_hogs:
+            parsed["killed_gpu_hogs"] = True
+        return parsed
+
     if vram_auto_recover and len(image_paths) > 1:
         logger.warning(
             f"⚠️ 멀티뷰 {len(image_paths)}장 모두 OOM — 첫 이미지만으로 단일뷰 fallback"
@@ -331,36 +385,46 @@ def generate(
             "kept": image_paths[0],
         })
         wsl_shutdown()
-        try:
-            sanitized = _sanitize_inputs(
-                [image_paths[0]], preserve_alpha=pre_masked, max_dim=1024,
-            )
-        except Exception as e:
-            return {"status": "error", "message": f"input prep failed: {e}",
-                    "vram_recovery": recovery_log}
+        ok = _try_single_view(after_kill_hogs=False)
+        if ok:
+            logger.info("✅ 단일뷰 fallback 성공")
+            return _commit_success(ok, single_view=True, killed_hogs=False)
 
-        logger.info(f"🧠 TRELLIS 단일뷰 fallback: {Path(image_paths[0]).name}")
-        parsed, stdout, stderr, rc = _run_trellis_once(
-            sanitized, raw_workdir_out,
-            seed, steps_ss, steps_slat, cfg_ss, cfg_slat, model,
-            pre_masked, deterministic,
-            timeout_s=config.trellis.timeout_seconds,
+    # ────────────────────────────────────────────────────────────────
+    # FINAL ESCALATION (last hammer): kill known Windows-side GPU hogs
+    # (Discord, Teams, OBS, NVIDIA Share, Razer, msedgewebview2) — these
+    # silently hold ~100-500 MB of fragmented VRAM each and prevent
+    # TRELLIS from finding the contiguous block it needs even when free
+    # VRAM is nominally "7+ GB". User's prior context proved this:
+    # closing 59 procs let single-view TRELLIS finish in 66s.
+    #
+    # Auto-runs only after every other recovery has failed. Even then
+    # it never closes the user's primary browser (chrome/edge/firefox).
+    # ────────────────────────────────────────────────────────────────
+    if vram_auto_recover:
+        logger.warning(
+            "🪓 모든 자동 회복 실패 — GPU 점유 앱 강제 종료 후 단일뷰 마지막 시도"
         )
-        if parsed and parsed.get("status") == "success":
-            src_path = Path(raw_workdir_out)
-            if src_path.is_file():
-                Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(str(src_path), output_path)
-                parsed["output_path"] = output_path
-                parsed["vram_recovery"] = recovery_log
-                parsed["max_dim_used"] = 1024
-                parsed["fallback_to_single_view"] = True
-                logger.info("✅ 단일뷰 fallback 성공")
-                return parsed
-        # single-view also failed
-        recovery_log.append({"phase": "fallback_single_view_failed"})
-        if parsed:
-            last_error = parsed
+        kill_report = kill_known_gpu_hogs(also_browsers=False)
+        recovery_log.append({"phase": "kill_hogs", **kill_report})
+        logger.info(f"   killed: {kill_report.get('killed', [])}")
+        wsl_shutdown()
+
+        ok = _try_single_view(after_kill_hogs=True)
+        if ok:
+            logger.info("✅ 단일뷰 + kill_hogs 마지막 시도 성공")
+            return _commit_success(ok, single_view=(len(image_paths) > 1), killed_hogs=True)
+
+        # All escalation tiers exhausted
+        if last_error is None:
+            last_error = {"status": "error", "message": "all recovery tiers exhausted"}
+        last_error["vram_recovery"] = recovery_log
+        last_error["hint"] = (
+            "8GB GPU + TRELLIS-image-large 한계 도달. "
+            "사용자 액션: Blender/OBS/Teams/Discord/Chrome 수동 종료 후 재시도, "
+            "또는 절차적/TripoSR 생성으로 전환."
+        )
+        return last_error
 
     # Should not reach here, but for completeness
     if last_error is None:
