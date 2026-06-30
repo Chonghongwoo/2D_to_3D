@@ -297,6 +297,8 @@
     </div>
 
     <button class="primary" id="generate" onclick="onGenerate()">▶ Generate</button>
+    <button class="ghost" id="cancel-btn" onclick="onCancel()" disabled
+            style="width:100%;margin-top:6px;display:none;">⏹ 작업 취소</button>
   </aside>
 
   <!-- RIGHT: log + result -->
@@ -724,6 +726,8 @@ async function onGenerate() {
   clearLog();
   document.getElementById("result-panel").style.display = "none";
   btn.disabled = true;
+  const cancelBtn = document.getElementById("cancel-btn");
+  if (cancelBtn) { cancelBtn.style.display = "block"; cancelBtn.disabled = false; }
   logLine("작업 큐 등록…", "stage");
 
   const colorOpts = getColorOpts();
@@ -864,6 +868,9 @@ async function onGenerate() {
         }
         showResult(d);
         break;
+      } else if (d.status === "cancelled") {
+        logLine(`🛑 사용자 취소됨 (라운드 ${d.result?.stages?.generation?.persistent_rounds_used ?? '?'} 까지 진행)`, "info");
+        break;
       } else if (d.status === "failed") {
         logLine(`❌ 실패: ${d.error || "unknown"}`, "err");
         // Concrete recovery hint when TRELLIS exhausted everything
@@ -900,6 +907,22 @@ async function onGenerate() {
     }
   }
   btn.disabled = false;
+  const cancelBtnEnd = document.getElementById("cancel-btn");
+  if (cancelBtnEnd) { cancelBtnEnd.style.display = "none"; cancelBtnEnd.disabled = true; }
+}
+
+async function onCancel() {
+  if (!currentJob) return;
+  const btn = document.getElementById("cancel-btn");
+  if (btn) { btn.disabled = true; btn.textContent = "⏹ 취소 요청 중…"; }
+  try {
+    const r = await fetch(`${API}/cancel/${currentJob}`, { method: "POST" });
+    const d = await r.json();
+    logLine(`🛑 취소 요청 전송됨: ${d.cancel_requested ? '대기 중인 라운드 종료시 정지' : (d.note || 'OK')}`, "info");
+  } catch (e) {
+    logLine(`취소 요청 실패: ${e}`, "err");
+    if (btn) { btn.disabled = false; btn.textContent = "⏹ 작업 취소"; }
+  }
 }
 
 function showResult(job) {

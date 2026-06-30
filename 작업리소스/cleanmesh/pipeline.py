@@ -69,6 +69,7 @@ class CleanMeshPipeline:
         export_format: str = "glb",
         dt_meta: dict | None = None,
         simready: bool = False,
+        cancel_check=None,
     ) -> dict:
         """
         Run the full CleanMesh pipeline.
@@ -126,7 +127,8 @@ class CleanMeshPipeline:
         # ─── Stage 2: Generation ───
         logger.info("━━━ Stage 2: 생성 ━━━")
         gen_result = self._generate_persistent(decision, timestamp,
-                                                pre_masked=pre_masked)
+                                                pre_masked=pre_masked,
+                                                cancel_check=cancel_check)
         result["stages"]["generation"] = gen_result
 
         if not _is_ok(gen_result):
@@ -273,22 +275,40 @@ class CleanMeshPipeline:
     # Persistent outer retry — wraps the entire (TRELLIS+TripoSR) flow
     # in an escalating loop. Each round freshens VRAM state and kills
     # an ever-wider set of Windows GPU consumers, then re-runs.
+    #
+    # The escalation ladder defines the FIRST N rounds. After it's
+    # exhausted, every subsequent round reuses the most-aggressive
+    # setting (kill_browsers + Blender) and just waits LONGER between
+    # attempts — relying on external state changes (user closing apps,
+    # background jobs ending) to eventually free the contiguous VRAM
+    # block TRELLIS needs.
+    #
+    # The loop runs until success OR cancel_check() returns True.
     # ────────────────────────────────────────────────────────────────
-    _PERSISTENT_TIERS = [
+    _ESCALATION_LADDER = [
         # (label, also_browsers, also_blender, wait_before_s)
         ("standard",              False, False,  0),
         ("kill_browsers",          True, False, 10),
         ("kill_browsers+blender",  True,  True, 15),
     ]
+    # Waits for round N+ (after ladder exhausted) — sec. Last value
+    # repeats forever (capped).
+    _POST_LADDER_WAITS = [30, 60, 90, 120]
 
     def _generate_persistent(
         self, decision: RoutingDecision, timestamp: str,
         pre_masked: bool = False,
+        cancel_check=None,
     ) -> dict:
-        """Run _generate up to len(_PERSISTENT_TIERS) times. Each round
-        escalates: kill more aggressive Windows apps and wait briefly
-        for VRAM to settle. Stops as soon as a round succeeds OR the
-        method is something that can't OOM (procedural)."""
+        """Run _generate in a persistent retry loop.
+
+        Rounds 1..len(_ESCALATION_LADDER): walk the escalation ladder.
+        Round N+: reuse most-aggressive setting; wait grows toward 120 s.
+        Loops until success OR `cancel_check` returns True.
+
+        cancel_check: optional callable[[], bool]. Called between rounds.
+            Return True to break the loop with a cancelled status.
+        """
         import time as _time
         from .vram_guard import kill_known_gpu_hogs, wsl_shutdown, get_vram_summary
 
@@ -298,12 +318,34 @@ class CleanMeshPipeline:
 
         persistent_log = []
         last_result = None
-        for round_idx, (label, browsers, blender, wait_s) in enumerate(self._PERSISTENT_TIERS):
+        round_idx = 0
+
+        while True:
+            # Determine settings for this round
+            if round_idx < len(self._ESCALATION_LADDER):
+                label, browsers, blender, wait_s = self._ESCALATION_LADDER[round_idx]
+            else:
+                # Post-ladder: reuse most aggressive + longer wait
+                label = "post_ladder_wait"
+                browsers, blender = True, True
+                w_idx = min(round_idx - len(self._ESCALATION_LADDER),
+                            len(self._POST_LADDER_WAITS) - 1)
+                wait_s = self._POST_LADDER_WAITS[w_idx]
+
+            # Cancellation check between rounds
+            if cancel_check is not None and cancel_check():
+                logger.warning(f"🛑 사용자 취소 요청 (라운드 {round_idx+1} 진입 전)")
+                if last_result is None:
+                    last_result = {"status": "error", "message": "cancelled by user"}
+                last_result["cancelled"] = True
+                last_result["persistent_rounds_used"] = round_idx
+                last_result["persistent_log"] = persistent_log
+                return last_result
+
+            # Escalation between rounds (skip on first round — that's just _generate)
             if round_idx > 0:
-                # Escalation between rounds
                 logger.warning(
-                    f"🔁 Persistent retry round {round_idx+1}/{len(self._PERSISTENT_TIERS)}: "
-                    f"escalation={label}"
+                    f"🔁 Persistent retry 라운드 {round_idx+1}: escalation={label}"
                 )
                 if browsers or blender:
                     kr = kill_known_gpu_hogs(
@@ -315,10 +357,22 @@ class CleanMeshPipeline:
                     logger.info(f"   killed: {kr.get('killed', [])}")
                 wsl_shutdown()
                 if wait_s > 0:
-                    logger.info(f"   ⏱️ {wait_s}s 대기 (드라이버 안정화)…")
-                    _time.sleep(wait_s)
+                    logger.info(f"   ⏱️ {wait_s}s 대기 (드라이버 안정화 + 외부 상태 변화 대기)…")
+                    # Interruptible sleep: poll cancel every second
+                    for _ in range(wait_s):
+                        if cancel_check is not None and cancel_check():
+                            logger.warning("🛑 사용자 취소 요청 (대기 중)")
+                            if last_result is None:
+                                last_result = {"status": "error", "message": "cancelled by user"}
+                            last_result["cancelled"] = True
+                            last_result["persistent_rounds_used"] = round_idx
+                            last_result["persistent_log"] = persistent_log
+                            return last_result
+                        _time.sleep(1)
                 vr = get_vram_summary()
-                logger.info(f"   free VRAM: {vr.get('free_mb','?')} / {vr.get('total_mb','?')} MB")
+                logger.info(
+                    f"   free VRAM: {vr.get('free_mb','?')} / {vr.get('total_mb','?')} MB"
+                )
 
             last_result = self._generate(decision, timestamp, pre_masked=pre_masked)
             if _is_ok(last_result):
@@ -328,16 +382,10 @@ class CleanMeshPipeline:
                     logger.info(f"✅ Persistent retry 라운드 {round_idx+1} 성공")
                 return last_result
 
-            # Not OK — log why and continue to next escalation tier
+            # Not OK — log why and continue
             err_msg = (last_result or {}).get("message", "")[:200]
             logger.warning(f"❌ 라운드 {round_idx+1} 실패: {err_msg}")
-
-        # All persistent rounds exhausted
-        if last_result is None:
-            last_result = {"status": "error", "message": "all persistent rounds failed"}
-        last_result["persistent_log"] = persistent_log
-        last_result["persistent_rounds_used"] = len(self._PERSISTENT_TIERS)
-        return last_result
+            round_idx += 1
 
     def _generate(self, decision: RoutingDecision, timestamp: str, pre_masked: bool = False) -> dict:
         """Execute the generation step based on routing decision."""

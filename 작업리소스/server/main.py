@@ -237,6 +237,23 @@ async def status(job_id: str):
     return jobs[job_id]
 
 
+@app.post("/api/cancel/{job_id}")
+async def cancel(job_id: str):
+    """Request cancellation of a running persistent-retry job.
+
+    The pipeline checks this flag between retry rounds and during
+    inter-round waits, then exits cleanly with status='cancelled'.
+    No effect on jobs that have already completed or failed.
+    """
+    if job_id not in jobs:
+        raise HTTPException(404, "Job not found")
+    if jobs[job_id].get("status") in ("completed", "failed", "cancelled"):
+        return {"job_id": job_id, "status": jobs[job_id]["status"],
+                "note": "already terminal"}
+    jobs[job_id]["cancel_requested"] = True
+    return {"job_id": job_id, "cancel_requested": True}
+
+
 @app.get("/api/download/{job_id}")
 async def download(job_id: str):
     """Download the generated 3D model."""
@@ -503,9 +520,14 @@ def _run_pipeline_job(
             export_format=export_format,
             dt_meta=dt_meta,
             simready=simready,
+            cancel_check=lambda: bool(jobs.get(job_id, {}).get("cancel_requested")),
         )
 
-        jobs[job_id]["status"] = "completed" if result["status"] == "success" else "failed"
+        gen = (result.get("stages") or {}).get("generation") or {}
+        if gen.get("cancelled"):
+            jobs[job_id]["status"] = "cancelled"
+        else:
+            jobs[job_id]["status"] = "completed" if result["status"] == "success" else "failed"
         jobs[job_id]["result"] = result
         jobs[job_id]["output_path"] = result.get("output_path")
         jobs[job_id]["report"] = result.get("report", "")
@@ -546,9 +568,14 @@ def _run_pipeline_job_multi(
             export_format=export_format,
             dt_meta=dt_meta,
             simready=simready,
+            cancel_check=lambda: bool(jobs.get(job_id, {}).get("cancel_requested")),
         )
 
-        jobs[job_id]["status"] = "completed" if result.get("status") == "success" else "failed"
+        gen = (result.get("stages") or {}).get("generation") or {}
+        if gen.get("cancelled"):
+            jobs[job_id]["status"] = "cancelled"
+        else:
+            jobs[job_id]["status"] = "completed" if result.get("status") == "success" else "failed"
         jobs[job_id]["result"] = result
         jobs[job_id]["output_path"] = result.get("output_path")
         jobs[job_id]["report"] = result.get("report", "")
@@ -835,8 +862,13 @@ def _run_pipeline_job_segmented(
             export_format=export_format,
             dt_meta=dt_meta,
             simready=simready,
+            cancel_check=lambda: bool(jobs.get(job_id, {}).get("cancel_requested")),
         )
-        jobs[job_id]["status"] = "completed" if result.get("status") == "success" else "failed"
+        gen = (result.get("stages") or {}).get("generation") or {}
+        if gen.get("cancelled"):
+            jobs[job_id]["status"] = "cancelled"
+        else:
+            jobs[job_id]["status"] = "completed" if result.get("status") == "success" else "failed"
         jobs[job_id]["result"] = result
         jobs[job_id]["output_path"] = result.get("output_path")
         jobs[job_id]["report"] = result.get("report", "")
