@@ -1,9 +1,9 @@
 """
-Build both technical documents for the CleanMesh Studio project — v1.1
+Build both technical documents for the CleanMesh Studio project — v1.2
   - CleanMesh_기술문서.docx   (detailed Word manual)
   - CleanMesh_매뉴얼.pptx    (slide deck for presentation)
 
-Reflects all features as of 2026-06-22:
+Features covered (as of v1.2 · Digital Twin):
   - D:\\GoogleDrive\\Image_to_3D project layout (실행/ + 작업리소스/ split)
   - SAM2 click-to-segment in WSL
   - Color modes: vertex / region_split
@@ -12,6 +12,11 @@ Reflects all features as of 2026-06-22:
   - Input downsampling to 1024 px (avoid OOM)
   - Operating practices (close Blender + OBS during generation)
   - Deterministic mode (opt-in, 8 GB GPU OOM risk)
+  - USD export (Omniverse / Twinmotion / BIM)
+  - Digital Twin metadata (category / dimensions_mm / manufacturer / serial)
+  - SimReady USD output (USDPhysics + assetInfo)
+  - VRAM auto-recovery + persistent retry (unbounded loop, cancellable)
+  - TripoSR fallback (toggle) when TRELLIS exhausts on 8 GB GPU
 
 Run:
     python build_docs.py
@@ -235,21 +240,18 @@ D:\GoogleDrive\Image_to_3D\                  ← 프로젝트 루트
 │   ├── CleanMeshStudio.log
 │   ├── CleanMesh_Start.bat / Stop.bat
 │   ├── *.lnk (단축아이콘 사본)
-│   ├── build_launcher.bat / migrate_pack.bat
-│   └── _onedrive_disable_admin.bat / _onedrive_rollback_steps.txt
+│   └── build_launcher.bat / migrate_pack.bat
 │
 └── 작업리소스\                                 ← 소스 코드
     ├── cleanmesh_launcher.py
     ├── requirements.txt
     ├── cleanmesh\
-    │   ├── router.py / pipeline.py / segment.py    ← segment.py (NEW v1.1)
-    │   ├── generators\
+    │   ├── router.py / pipeline.py / segment.py    ← segment.py    │   ├── generators\
     │   │   ├── procedural.py / triposr.py
-    │   │   └── trellis.py                          ← --deterministic, 다운샘플 (NEW v1.1)
-    │   └── blender\
+    │   │   └── trellis.py                          ← --deterministic, 다운샘플    │   └── blender\
     │       ├── cleanup.py / render.py / export.py
-    │       ├── color_smooth.py                     ← NEW v1.1
-    │       ├── color_split.py                      ← NEW v1.1
+    │       ├── color_smooth.py                     ← v1.2
+    │       ├── color_split.py                      ← v1.2
     │       └── templates\
     ├── server\ (main.py + static/index.html)
     └── trellis_wsl\                                ← WSL2 스크립트
@@ -310,9 +312,10 @@ bash /mnt/d/trellis/_install_step2.sh
 bash /mnt/d/trellis/_install_kaolin.sh
 bash /mnt/d/trellis/_fix_transformers.sh
 bash /mnt/d/trellis/_sanity.sh
-bash /mnt/d/trellis/_install_sam2_safe.sh    ← 반드시 _safe 버전""")
-    _para(doc, "⚠ _install_sam2.sh (구버전) 실행 금지 — torch 2.4 → 2.12 강제 업그레이드로 TRELLIS 깨짐",
-          bold=True, color="b22222")
+bash /mnt/d/trellis/_install_sam2_safe.sh""")
+    _para(doc, "SAM2 설치는 _install_sam2_safe.sh 만 유지 — 구버전 스크립트는 v1.2에서 삭제됨 "
+               "(torch 2.4 → 2.12 강제 업그레이드로 TRELLIS 파손 이슈 방지).",
+          size=11, color="595959")
 
     _heading(doc, "4.4 첫 실행", 2)
     _bullet(doc, "바탕화면 CleanMesh Studio 단축아이콘 더블클릭")
@@ -353,7 +356,7 @@ wsl -d Ubuntu-22.04 -- bash -lc "source ~/trellis-venv/bin/activate && \
 
 Vertex color: 3D Gaussian DC term → KNN 으로 정점에 전이""")
 
-    _heading(doc, "5.5 SAM2 클릭 세그멘트 (NEW v1.1)", 2)
+    _heading(doc, "5.5 SAM2 클릭 세그멘트", 2)
     _para(doc, "Meta SAM 2.1 hiera_large (224M 파라미터). 1~5개 클릭으로 정밀 마스크 → "
                "RGBA로 TRELLIS에 전달 → TRELLIS rembg 우회.")
     _bullet(doc, "양성 클릭 (label=1): 주체 위, 녹색 점")
@@ -367,7 +370,7 @@ Vertex color: 3D Gaussian DC term → KNN 으로 정점에 전이""")
         ["POST", "/api/generate-segmented", "세션의 마스크로 TRELLIS 시작"],
     ])
 
-    _heading(doc, "5.6 색상 처리 2모드 (NEW v1.1)", 2)
+    _heading(doc, "5.6 색상 처리 2모드", 2)
     _table(doc, ["모드", "처리", "결과", "용도"], [
         ["vertex (DT 권장)",     "정점마다 색상 + Laplacian 평탄화", "실제 표면 그대로",   "디지털 트윈 (산화·녹·라벨 보존)"],
         ["region_split",        "K-means → K개 머티리얼",       "평평한 단색 K개",   "자산 모듈화 / 부품별 머티리얼 교체 / LOD"],
@@ -860,7 +863,7 @@ def build_pptx():
     ], size=14)
 
     # 9. 잡티 제거 강도
-    s = new(); _title(s, "8. 잡티 제거 강도 (v1.1)", "Laplacian smoothing + 라벨 정리")
+    s = new(); _title(s, "8. 잡티 제거 강도 (v1.2)", "Laplacian smoothing + 라벨 정리")
     _p_table(s, PInches(0.5), PInches(1.6), PInches(12.3), PInches(3.5),
            ["강도", "정점 smooth", "라벨 smooth", "min region", "효과"],
            [["강", "7회", "4회", "200면", "잡티 최대 제거"],
@@ -940,7 +943,7 @@ GET  /api/contact-sheet/{job_id}  → 6방향 합성
 POST /api/import-to-blender       → Blender push""")
 
     # 15. 디렉토리
-    s = new(); _title(s, "14. 디렉토리 구조 (v1.1)", "D:\\GoogleDrive\\Image_to_3D")
+    s = new(); _title(s, "14. 디렉토리 구조 (v1.2)", "D:\\GoogleDrive\\Image_to_3D")
     _p_code(s, PInches(0.5), PInches(1.6), PInches(12.3), PInches(5.2), r"""
 D:\GoogleDrive\Image_to_3D\
 ├── CleanMesh_기술문서.docx
