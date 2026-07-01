@@ -21,29 +21,43 @@ class BlenderConfig:
 
     @staticmethod
     def _find_blender() -> str:
-        """Auto-detect Blender installation."""
-        candidates = [
-            r"C:\Program Files\Blender Foundation\Blender 5.1\blender.exe",
-            r"C:\Program Files\Blender Foundation\Blender 5.0\blender.exe",
-            r"C:\Program Files\Blender Foundation\Blender 4.4\blender.exe",
-            r"C:\Program Files\Blender Foundation\Blender 4.3\blender.exe",
-            r"C:\Program Files\Blender Foundation\Blender 4.2\blender.exe",
-            r"C:\Program Files\Blender Foundation\Blender 4.1\blender.exe",
-            r"C:\Program Files\Blender Foundation\Blender 4.0\blender.exe",
-            r"C:\Program Files\Blender Foundation\Blender 3.6\blender.exe",
-        ]
+        """Auto-detect Blender installation.
+
+        Order:
+          1. Standard install paths for Blender 3.6 through 5.3, newest-first
+             (both Program Files and Program Files (x86)).
+          2. Any `blender.exe` on PATH.
+          3. Glob for `C:\\Program Files\\Blender Foundation\\Blender *`
+             to catch versions we didn't hard-code.
+        """
+        import glob
+        candidates = []
+        for base in (r"C:\Program Files\Blender Foundation",
+                     r"C:\Program Files (x86)\Blender Foundation"):
+            for ver in ("5.3", "5.2", "5.1", "5.0",
+                        "4.4", "4.3", "4.2", "4.1", "4.0",
+                        "3.6"):
+                candidates.append(f"{base}\\Blender {ver}\\blender.exe")
+
         for path in candidates:
             if os.path.isfile(path):
                 return path
 
-        # Try PATH
         import shutil
-        blender = shutil.which("blender")
-        if blender:
-            return blender
+        on_path = shutil.which("blender")
+        if on_path:
+            return on_path
+
+        # Fallback: glob for any Blender N.M dir we didn't list
+        for base in (r"C:\Program Files\Blender Foundation",
+                     r"C:\Program Files (x86)\Blender Foundation"):
+            for exe in glob.glob(f"{base}\\Blender *\\blender.exe"):
+                if os.path.isfile(exe):
+                    return exe
 
         raise FileNotFoundError(
-            "Blender not found. Install Blender 4.x and set config.blender.executable"
+            "Blender not found. Install Blender 4.x+ from blender.org, "
+            "or set config.blender.executable manually."
         )
 
 
