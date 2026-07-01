@@ -339,9 +339,15 @@ class CleanMeshPipeline:
             if round_idx < len(self._ESCALATION_LADDER):
                 label, browsers, blender, wait_s = self._ESCALATION_LADDER[round_idx]
             else:
-                # Post-ladder: reuse most aggressive + longer wait
+                # Post-ladder rounds (4+): reuse Blender-kill setting from the
+                # final ladder tier and just wait longer for external state to
+                # change. Browsers are STILL never auto-killed — the CleanMesh
+                # UI runs inside the user's Chrome/Edge, and closing it mid-job
+                # kills the user's own control surface. If they want to donate
+                # that VRAM they close the browser themselves.
                 label = "post_ladder_wait"
-                browsers, blender = True, True
+                browsers = False        # ← never auto-kill browsers
+                blender  = True         # keep the Blender kill from tier 3
                 w_idx = min(round_idx - len(self._ESCALATION_LADDER),
                             len(self._POST_LADDER_WAITS) - 1)
                 wait_s = self._POST_LADDER_WAITS[w_idx]
