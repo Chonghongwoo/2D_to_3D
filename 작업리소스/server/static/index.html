@@ -206,104 +206,34 @@
     </div>
 
     <div class="section">
-      <h2>또는 절차적 텍스트 (이미지 없이)</h2>
-      <textarea id="description" placeholder="예: 200L 빨간 드럼통, EUR1 팔레트, 600x400x400 박스…"></textarea>
-    </div>
-
-    <div class="section">
-      <h2>옵션</h2>
-      <div class="row">
-        <select id="quality">
-          <option value="speed">속도 (TripoSR)</option>
-          <option value="quality" selected>품질 (TRELLIS)</option>
-        </select>
-        <select id="engine">
-          <option value="unity" selected>Unity</option>
-          <option value="godot">Godot</option>
-          <option value="unreal">Unreal</option>
-        </select>
-      </div>
-      <input id="object-name" type="text" placeholder="객체 이름 (선택사항)"
-             style="width:100%;margin-top:8px;background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:13px;" />
       <div class="seg-toggle-row">
         <input type="checkbox" id="enable-segment" />
         <label for="enable-segment">🎯 클릭으로 주체만 추출 (SAM2, 권장)</label>
       </div>
 
-      <!-- Color mode -->
-      <div style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border);">
-        <h2 style="font-size:13px; font-weight:600; margin:0 0 8px; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px;">색상 입히기</h2>
-        <div class="seg-toggle-row" style="padding:2px 0;">
-          <input type="radio" name="color-mode" id="color-vertex" value="vertex" checked />
-          <label for="color-vertex">정점 색상 (실제 표면 그대로) — <b>디지털 트윈 권장</b></label>
-        </div>
-        <div class="seg-toggle-row" style="padding:2px 0;">
-          <input type="radio" name="color-mode" id="color-split" value="region_split" />
-          <label for="color-split">영역별 분해 (K개 단색) — LOD · 모듈화 용도</label>
-        </div>
-        <!-- K slider — only relevant for region_split mode -->
-        <div id="color-k-row" style="margin-top:6px; padding-left:22px; display:none;">
-          <label style="font-size:12px; color:var(--muted);">
-            영역 수 K: <span id="color-k-val">3</span>
-          </label>
-          <input type="range" id="color-k" min="2" max="8" value="3" step="1"
-                 style="width:100%; margin-top:4px;" />
-        </div>
+      <div class="seg-toggle-row" style="padding:6px 0 0; border-top:1px solid var(--border); margin-top:6px;">
+        <input type="checkbox" id="dt-simready" />
+        <label for="dt-simready">
+          <b>SimReady USD</b> 출력 (Omniverse 시뮬레이션 즉시 가능)
+        </label>
+      </div>
 
-        <!-- Clean strength — common to both modes -->
+      <div class="seg-toggle-row" style="padding:6px 0 0;">
+        <input type="checkbox" id="dt-no-triposr" checked />
+        <label for="dt-no-triposr">
+          <b>고품질만</b> (TRELLIS 실패시 TripoSR 자동 전환 안 함)
+        </label>
+      </div>
+
+      <details style="margin-top:10px; padding-top:8px; border-top:1px solid var(--border);">
+        <summary style="cursor:pointer; font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px; user-select:none;">고급 (선택)</summary>
         <div style="margin-top:8px;">
-          <label style="font-size:12px; color:var(--muted); display:block;">
-            잡티 제거 강도: <span id="color-clean-val">약</span>
-            <span id="color-clean-hint" style="font-size:11px; color:var(--muted); float:right;">
-              (정점 색상 평탄화 — DT 디테일 보존)
-            </span>
-          </label>
-          <select id="color-clean" style="width:100%; margin-top:4px;">
-            <option value="strong">강 — 잡티 최대 제거 (단순 LOD · 미리보기 용)</option>
-            <option value="medium">중 — 적당히</option>
-            <option value="light" selected>약 — 디테일 보존 (디지털 트윈 권장)</option>
-            <option value="off">끄기 — 원본 그대로</option>
-          </select>
+          <textarea id="description" placeholder="절차적 생성용 텍스트 (이미지 없이): 예 200L 빨간 드럼통…"
+                    style="width:100%; min-height:52px; font-size:12px;"></textarea>
+          <input id="object-name" type="text" placeholder="객체 이름 (자동 timestamp)"
+                 style="width:100%; margin-top:6px; background:var(--panel2); color:var(--text); border:1px solid var(--border); border-radius:4px; padding:6px 8px; font-size:12px;" />
         </div>
-      </div>
-
-      <!-- ── Digital Twin metadata (NEW v1.2) ── -->
-      <div style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border);">
-        <h2 style="font-size:13px; font-weight:600; margin:0 0 8px; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px;">디지털 트윈 메타데이터 (선택)</h2>
-        <input id="dt-category" type="text" placeholder="카테고리 (예: AGV, pallet, drum)"
-               style="width:100%;margin-bottom:6px;background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:6px 8px;font-size:12px;" />
-        <input id="dt-dims" type="text" placeholder='실치수 mm 예: [1200, 800, 144]'
-               style="width:100%;margin-bottom:6px;background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:6px 8px;font-size:12px;" />
-        <input id="dt-manufacturer" type="text" placeholder="제조사"
-               style="width:100%;margin-bottom:6px;background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:6px 8px;font-size:12px;" />
-        <input id="dt-serial" type="text" placeholder="시리얼 번호 / 자산 ID"
-               style="width:100%;margin-bottom:6px;background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:6px 8px;font-size:12px;" />
-        <label style="font-size:12px; color:var(--muted); display:block; margin-top:4px;">익스포트 포맷</label>
-        <select id="dt-format" style="width:100%; margin-top:2px;">
-          <option value="glb" selected>GLB (범용 — Blender, Unity, Unreal)</option>
-          <option value="usd">USD (Omniverse / Twinmotion 권장)</option>
-          <option value="fbx">FBX (Unreal / 구버전 Unity)</option>
-        </select>
-        <div class="seg-toggle-row" style="padding:6px 0 0; margin-top:6px;">
-          <input type="checkbox" id="dt-simready" />
-          <label for="dt-simready" style="font-size:12px;">
-            <b>SimReady</b> 자산으로 출력 (USDPhysics + 시맨틱 + assetInfo)
-            <span style="display:block; font-size:11px; color:var(--muted); margin-top:2px;">
-              USD 포맷에서만 적용. Omniverse 시뮬레이션 즉시 가능.
-            </span>
-          </label>
-        </div>
-        <div class="seg-toggle-row" style="padding:6px 0 0;">
-          <input type="checkbox" id="dt-no-triposr" checked />
-          <label for="dt-no-triposr" style="font-size:12px;">
-            <b>고품질만</b> — TRELLIS 실패시 TripoSR로 자동 전환 <b>안 함</b>
-            <span style="display:block; font-size:11px; color:var(--muted); margin-top:2px;">
-              체크: TRELLIS OOM시 깨끗한 실패 (저품질 결과 방지).
-              해제: 무조건 결과 보장 (8GB GPU에선 TripoSR 1MB 결과 가능).
-            </span>
-          </label>
-        </div>
-      </div>
+      </details>
     </div>
 
     <button class="primary" id="generate" onclick="onGenerate()">▶ Generate</button>
@@ -441,67 +371,30 @@ document.getElementById("enable-segment").addEventListener("change", e => {
   segRefreshVisibility();
 });
 
-// Color mode UI wiring
-document.querySelectorAll('input[name="color-mode"]').forEach(el => {
-  el.addEventListener("change", () => {
-    const split = document.getElementById("color-split").checked;
-    document.getElementById("color-k-row").style.display = split ? "block" : "none";
-    // Hint text changes by mode
-    document.getElementById("color-clean-hint").textContent =
-      split ? "(평탄화 + 라벨 정리 + 작은 패치 흡수)" : "(정점 색상 평탄화)";
-  });
-});
-document.getElementById("color-k").addEventListener("input", e => {
-  document.getElementById("color-k-val").textContent = e.target.value;
-});
-document.getElementById("color-clean").addEventListener("change", e => {
-  const labels = { strong: "강", medium: "중", light: "약", off: "끄기" };
-  document.getElementById("color-clean-val").textContent = labels[e.target.value] || e.target.value;
-});
-
+// Minimal UI — advanced options removed. Defaults baked in:
+//   color_mode = vertex (DT recommended surface fidelity)
+//   color_smooth = light (약, DT detail preservation)
+//   export_format = glb (Blender pipeline; SimReady forces USD on backend)
+//   engine = omniverse (DT default)
 function getDtMeta() {
-  const cat   = document.getElementById("dt-category").value.trim();
-  const dims  = document.getElementById("dt-dims").value.trim();
-  const mfg   = document.getElementById("dt-manufacturer").value.trim();
-  const ser   = document.getElementById("dt-serial").value.trim();
-  const fmt   = document.getElementById("dt-format").value;
-  const simready = document.getElementById("dt-simready")?.checked || false;
+  const simready  = document.getElementById("dt-simready")?.checked  || false;
   const noTriposr = document.getElementById("dt-no-triposr")?.checked || false;
-  const meta = { export_format: fmt, simready: simready, disable_triposr_fallback: noTriposr };
-  if (cat)  meta.category      = cat;
-  if (mfg)  meta.manufacturer  = mfg;
-  if (ser)  meta.serial_number = ser;
-  if (dims) {
-    // Accept "[1200, 800, 144]" or "1200, 800, 144" or "1200x800x144"
-    let parsed;
-    try { parsed = JSON.parse(dims); }
-    catch {
-      const nums = dims.split(/[\s,xX×]+/).map(Number).filter(n => !isNaN(n));
-      if (nums.length >= 1) parsed = nums;
-    }
-    if (parsed) meta.dimensions_mm = parsed;
-  }
-  return meta;
+  // SimReady requires USD; otherwise GLB (round-trip through Blender for anything else)
+  return {
+    export_format: simready ? "usd" : "glb",
+    simready: simready,
+    disable_triposr_fallback: noTriposr,
+  };
 }
 
 function getColorOpts() {
-  const mode = document.querySelector('input[name="color-mode"]:checked').value;
-  const k = parseInt(document.getElementById("color-k").value, 10) || 3;
-  const preset = document.getElementById("color-clean").value;
-  // Preset → 3 underlying knobs sent to backend
-  const presetMap = {
-    "strong": { smooth_iters: 7, label_smooth_iters: 4, min_region_size: 200 },
-    "medium": { smooth_iters: 5, label_smooth_iters: 3, min_region_size: 100 },
-    "light":  { smooth_iters: 2, label_smooth_iters: 1, min_region_size: 30  },
-    "off":    { smooth_iters: 0, label_smooth_iters: 0, min_region_size: 1   },
-  };
-  const knobs = presetMap[preset] || presetMap["medium"];
+  // Fixed DT-recommended defaults (vertex + light smoothing).
   return {
-    color_mode: mode,
-    color_k: k,
-    color_smooth_iters: knobs.smooth_iters,
-    color_label_smooth_iters: knobs.label_smooth_iters,
-    color_min_region_size: knobs.min_region_size,
+    color_mode: "vertex",
+    color_k: 3,                       // ignored when mode=vertex
+    color_smooth_iters: 2,            // light
+    color_label_smooth_iters: 1,
+    color_min_region_size: 30,
   };
 }
 
@@ -723,10 +616,13 @@ function clearLog() { document.getElementById("log").innerHTML = ""; }
 
 // ─── Generate ─── //
 async function onGenerate() {
-  const desc = document.getElementById("description").value.trim();
-  const quality = document.getElementById("quality").value;
-  const engine = document.getElementById("engine").value;
-  const name = document.getElementById("object-name").value.trim();
+  // Advanced options (may be absent when the <details> block is closed
+  // or removed — read defensively).
+  const desc = document.getElementById("description")?.value.trim()   || "";
+  const name = document.getElementById("object-name")?.value.trim()   || "";
+  // Backend routes by image count; UI no longer exposes quality/engine.
+  const quality = "quality";
+  const engine  = "omniverse";
   const btn = document.getElementById("generate");
 
   if (currentFiles.length === 0 && !desc) {
@@ -743,15 +639,8 @@ async function onGenerate() {
 
   const colorOpts = getColorOpts();
   const dtMeta = getDtMeta();
-  if (colorOpts.color_mode === "region_split") {
-    logLine(`색상 입히기: 영역별 분해 K=${colorOpts.color_k}`, "info");
-  }
-  if (dtMeta.category || dtMeta.dimensions_mm) {
-    logLine(`DT 메타: ${dtMeta.category || '?'} / ${JSON.stringify(dtMeta.dimensions_mm || [])} / ${dtMeta.manufacturer || '?'}`, "info");
-  }
-  if (dtMeta.export_format !== "glb") {
-    logLine(`익스포트 포맷: ${dtMeta.export_format.toUpperCase()}`, "info");
-  }
+  if (dtMeta.simready) logLine("SimReady USD 출력 요청됨", "info");
+  if (dtMeta.disable_triposr_fallback) logLine("고품질만 모드 — TripoSR fallback 비활성화", "info");
 
   let jobId;
   try {
