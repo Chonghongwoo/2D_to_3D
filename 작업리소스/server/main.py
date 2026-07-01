@@ -132,7 +132,7 @@ async def generate(
     dt_manufacturer: Optional[str] = Form(None),
     dt_serial: Optional[str] = Form(None),
     simready: bool = Form(False),
-    disable_triposr_fallback: bool = Form(False),
+    disable_triposr_fallback: bool = Form(True),
 ):
     """
     Generate a 3D model from an uploaded image.
@@ -406,7 +406,7 @@ async def generate_multi(
     dt_manufacturer: Optional[str] = Form(None),
     dt_serial: Optional[str] = Form(None),
     simready: bool = Form(False),
-    disable_triposr_fallback: bool = Form(False),
+    disable_triposr_fallback: bool = Form(True),
 ):
     """Multi-image generation (routes to TRELLIS_MULTI when >=2 images)."""
     if not files:
@@ -501,7 +501,7 @@ def _run_pipeline_job(
     color_mode="vertex", color_k=4,
     color_smooth_iters=2, color_label_smooth_iters=1, color_min_region_size=30,
     export_format="glb", dt_meta=None, simready=False,
-    disable_triposr_fallback=False,
+    disable_triposr_fallback=True,
 ):
     """Run the full pipeline in a background thread."""
     try:
@@ -551,7 +551,7 @@ def _run_pipeline_job_multi(
     color_mode="vertex", color_k=4,
     color_smooth_iters=2, color_label_smooth_iters=1, color_min_region_size=30,
     export_format="glb", dt_meta=None, simready=False,
-    disable_triposr_fallback=False,
+    disable_triposr_fallback=True,
 ):
     """Multi-image variant — uses image_paths kwarg so router picks TRELLIS_MULTI."""
     try:
@@ -848,7 +848,7 @@ def _run_pipeline_job_segmented(
     color_mode="vertex", color_k=4,
     color_smooth_iters=2, color_label_smooth_iters=1, color_min_region_size=30,
     export_format="glb", dt_meta=None, simready=False,
-    disable_triposr_fallback=False,
+    disable_triposr_fallback=True,
 ):
     """Pipeline runner that flags inputs as pre-masked (SAM2 cutouts)."""
     try:

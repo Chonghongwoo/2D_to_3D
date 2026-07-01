@@ -166,13 +166,16 @@ def _generate_direct(
     import subprocess
 
     config = get_config()
-    backend_dir = Path(r"C:\WorkingJob\3d-model-tool\python-backend")
+    backend_dir = Path(config.triposr.backend_dir)
     venv_python = backend_dir / "venv" / "Scripts" / "python.exe"
 
     if not venv_python.exists():
         return {
             "status": "error",
-            "message": f"TripoSR venv not found at {venv_python}. Start the API server instead.",
+            "message": (f"TripoSR venv not found at {venv_python}. "
+                        "Start the API server instead, or set the "
+                        "CLEANMESH_TRIPOSR_DIR environment variable to "
+                        "the TripoSR install path."),
         }
 
     # Build a small inline script to run TripoSR directly

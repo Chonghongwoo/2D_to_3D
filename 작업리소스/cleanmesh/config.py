@@ -73,6 +73,17 @@ class TripoSRConfig:
     bake_texture: bool = True
     texture_resolution: int = 1024
     timeout_seconds: int = 120
+    # Path to the TripoSR backend (venv + main.py). Falls back to the
+    # default install location. Override via environment variable
+    # CLEANMESH_TRIPOSR_DIR for portable / non-standard installs.
+    backend_dir: str = ""
+
+    def __post_init__(self):
+        if not self.backend_dir:
+            self.backend_dir = os.environ.get(
+                "CLEANMESH_TRIPOSR_DIR",
+                r"C:\WorkingJob\3d-model-tool\python-backend",
+            )
 
 
 @dataclass

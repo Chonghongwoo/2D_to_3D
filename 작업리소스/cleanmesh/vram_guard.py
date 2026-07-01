@@ -111,36 +111,68 @@ def wait_for_vram(min_free_mb: int,
 # 3) WSL shutdown — hardest VRAM hammer
 # ---------------------------------------------------------------------------
 
-def wsl_shutdown(timeout: float = 15.0) -> dict:
-    """Run `wsl --shutdown` and wait briefly for VRAM to drop.
+TRELLIS_DISTRO = "Ubuntu-22.04"
 
-    This forces the WSL2 virtual machine to terminate; on next WSL
-    command the kernel restarts and starts with zero VRAM. The most
-    reliable way to release PyTorch's fragmented allocations.
+
+def wsl_shutdown(timeout: float = 15.0,
+                 distro: str = TRELLIS_DISTRO) -> dict:
+    """Release the TRELLIS distro's VRAM.
+
+    Strategy — **targeted, not systemwide**:
+      1) `wsl -t <distro>` terminates ONLY the TRELLIS distro (Ubuntu-22.04).
+         Other WSL sessions (Docker Desktop, dev environments) survive.
+      2) If VRAM didn't drop enough, fall back to `wsl --shutdown` which
+         nukes every WSL2 VM (heaviest hammer). This still preserves
+         non-WSL work but does end Docker containers etc.
+
+    Return dict records which path was used so the caller can log it.
     """
     wsl = shutil.which("wsl") or "wsl"
     before = get_vram_summary().get("free_mb")
+
+    # 1) Try targeted terminate first
     try:
         cp = _hidden_run(
-            [wsl, "--shutdown"],
+            [wsl, "-t", distro],
             capture_output=True, text=True, timeout=timeout,
             encoding="utf-8", errors="replace",
         )
-        ok = cp.returncode == 0
+        targeted_ok = cp.returncode == 0
     except subprocess.TimeoutExpired:
-        return {"action": "wsl_shutdown", "ok": False, "reason": "timeout"}
+        targeted_ok = False
     except FileNotFoundError:
-        return {"action": "wsl_shutdown", "ok": False, "reason": "wsl not on PATH"}
+        return {"action": "wsl_shutdown", "ok": False,
+                "reason": "wsl not on PATH"}
 
-    # Brief wait for VRAM driver to settle
     time.sleep(2.5)
     after = get_vram_summary().get("free_mb")
+    freed = (after - before) if (before is not None and after is not None) else None
+
+    # 2) Escalate to full shutdown ONLY if targeted terminate freed < 500 MB
+    #    (this means WSL2's utility VM still holds the memory across distros).
+    escalated = False
+    if freed is not None and freed < 500:
+        try:
+            _hidden_run(
+                [wsl, "--shutdown"],
+                capture_output=True, text=True, timeout=timeout,
+                encoding="utf-8", errors="replace",
+            )
+            escalated = True
+            time.sleep(2.5)
+            after = get_vram_summary().get("free_mb")
+            freed = (after - before) if (before is not None and after is not None) else None
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            pass
+
     return {
         "action": "wsl_shutdown",
-        "ok": ok,
+        "ok": targeted_ok or escalated,
+        "distro_terminated": distro,
+        "escalated_to_full_shutdown": escalated,
         "free_mb_before": before,
         "free_mb_after":  after,
-        "freed_mb":       (after - before) if (before is not None and after is not None) else None,
+        "freed_mb":       freed,
     }
 
 
@@ -148,20 +180,42 @@ def wsl_shutdown(timeout: float = 15.0) -> dict:
 # 4) Kill known GPU hogs (opt-in only — kills user's running apps)
 # ---------------------------------------------------------------------------
 
-# Process basenames (no extension) that frequently hold VRAM unnecessarily.
-# Add/remove via config in the future if needed.
+# Process basenames (no extension) that hold VRAM in the BACKGROUND
+# without the user actively working with them right now. Killing these
+# is intended to be low-surprise:
+#   - NVIDIA Share:      silent recording overlay; not the user's foreground app
+#   - NVIDIA Overlay:    performance overlay; same rationale
+#   - msedgewebview2:    embedded webview engine for Electron apps
+#                        (Discord/Slack/Teams). Killing it just triggers
+#                        their embedded views to reload — no user data loss.
+#
+# Apps that USERS ACTIVELY USE (Discord/Teams chats, OBS recording, Razer
+# peripheral controllers) are DELIBERATELY EXCLUDED from the default tier
+# because killing them without asking loses in-progress conversations,
+# recordings, or peripheral state (RGB lighting, macro keys).
+#
+# Those apps can still be killed manually via _AGGRESSIVE_HOGS (opt-in via
+# a config flag not enabled by any current code path — reserved for future
+# opt-in UI toggle).
 _KNOWN_HOGS = [
+    "NVIDIA Share",
+    "NVIDIA Overlay",
+    "msedgewebview2",
+]
+
+# Reserved for future opt-in — currently NOT invoked by any caller.
+# Killing these disrupts real user work:
+#   - Discord/Teams: active chats and calls
+#   - OBS: mid-recording livestreams
+#   - Razer: peripheral RGB and macros
+_AGGRESSIVE_HOGS = [
     "Discord",
     "Teams",
     "ms-teams",
     "obs64",
     "obs32",
-    "NVIDIA Share",
-    "NVIDIA Overlay",
     "RazerCortex",
     "RazerAppEngine",
-    # Browsers grabbed last — they're often the user's foreground app.
-    "msedgewebview2",
 ]
 
 
