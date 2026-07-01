@@ -778,7 +778,16 @@ async function onGenerate() {
       continue;
     }
       if (d.status === "running") {
-        logLine(`⏳ 실행 중… (${elapsed}s)`);
+        // Show recovery round counter when the pipeline is retrying,
+        // so the user can tell "actively working" from "stuck in loop".
+        const p = d.progress;
+        if (p && p.round) {
+          const streakWarn = p.no_progress_streak >= 3
+            ? ` ⚠️ ${p.no_progress_streak}회 연속 동일 실패` : "";
+          logLine(`⏳ 실행 중… (${elapsed}s) — 회복 ${p.round}/${p.max_rounds} · 여유 ${p.free_mb}MB${streakWarn}`);
+        } else {
+          logLine(`⏳ 실행 중… (${elapsed}s)`);
+        }
       } else if (d.status === "completed") {
         logLine(`✅ 완료! (${elapsed}s)`, "ok");
         // Surface fallbacks so the user knows what actually happened

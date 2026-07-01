@@ -527,6 +527,7 @@ def _run_pipeline_job(
             simready=simready,
             disable_triposr_fallback=disable_triposr_fallback,
             cancel_check=lambda: bool(jobs.get(job_id, {}).get("cancel_requested")),
+            progress_sink=lambda info: jobs.setdefault(job_id, {}).update({"progress": info}),
         )
 
         gen = (result.get("stages") or {}).get("generation") or {}
@@ -577,6 +578,7 @@ def _run_pipeline_job_multi(
             simready=simready,
             disable_triposr_fallback=disable_triposr_fallback,
             cancel_check=lambda: bool(jobs.get(job_id, {}).get("cancel_requested")),
+            progress_sink=lambda info: jobs.setdefault(job_id, {}).update({"progress": info}),
         )
 
         gen = (result.get("stages") or {}).get("generation") or {}
@@ -874,6 +876,7 @@ def _run_pipeline_job_segmented(
             simready=simready,
             disable_triposr_fallback=disable_triposr_fallback,
             cancel_check=lambda: bool(jobs.get(job_id, {}).get("cancel_requested")),
+            progress_sink=lambda info: jobs.setdefault(job_id, {}).update({"progress": info}),
         )
         gen = (result.get("stages") or {}).get("generation") or {}
         if gen.get("cancelled"):

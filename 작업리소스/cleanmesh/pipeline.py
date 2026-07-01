@@ -72,6 +72,7 @@ class CleanMeshPipeline:
         simready: bool = False,
         cancel_check=None,
         disable_triposr_fallback: bool = False,
+        progress_sink=None,
     ) -> dict:
         """
         Run the full CleanMesh pipeline.
@@ -133,6 +134,7 @@ class CleanMeshPipeline:
             pre_masked=pre_masked,
             cancel_check=cancel_check,
             disable_triposr_fallback=disable_triposr_fallback,
+            progress_sink=progress_sink,
         )
         result["stages"]["generation"] = gen_result
 
@@ -308,20 +310,41 @@ class CleanMeshPipeline:
     # deadlock without killing the user's UI.
     _POST_LADDER_WAITS = [60, 90, 120]
 
+    # Hard cap on total rounds — even in "unbounded" mode, keep going
+    # forever is pointless if nothing changes. 15 rounds ≈ 15-20 min
+    # of wait + attempts, enough time for a user to notice and close
+    # apps externally. Beyond that we give up with a clear message.
+    _MAX_PERSISTENT_ROUNDS = 15
+
+    # "No progress" detector: if this many consecutive rounds show the
+    # same OOM signature (same tier failing at the same VRAM level),
+    # additional rounds cannot help without external state change.
+    _NO_PROGRESS_STREAK = 5
+
     def _generate_persistent(
         self, decision: RoutingDecision, timestamp: str,
         pre_masked: bool = False,
         cancel_check=None,
         disable_triposr_fallback: bool = False,
+        progress_sink=None,
     ) -> dict:
         """Run _generate in a persistent retry loop.
 
         Rounds 1..len(_ESCALATION_LADDER): walk the escalation ladder.
         Round N+: reuse most-aggressive setting; wait grows toward 120 s.
-        Loops until success OR `cancel_check` returns True.
+        Loops until:
+          - a round succeeds, OR
+          - the same OOM signature repeats _NO_PROGRESS_STREAK times
+            (further retries won't help without external change), OR
+          - _MAX_PERSISTENT_ROUNDS is hit, OR
+          - `cancel_check` returns True.
 
         cancel_check: optional callable[[], bool]. Called between rounds.
             Return True to break the loop with a cancelled status.
+
+        progress_sink: optional callable(dict) called after each round
+            with {'round': N, 'label': str, 'free_mb': int, 'error_tail': str}
+            so the server can expose live progress on /api/status.
         """
         import time as _time
         from .vram_guard import kill_known_gpu_hogs, wsl_shutdown, get_vram_summary
@@ -333,8 +356,28 @@ class CleanMeshPipeline:
         persistent_log = []
         last_result = None
         round_idx = 0
+        # No-progress detector state: track last N (signature) tuples
+        recent_signatures: list[tuple] = []
 
         while True:
+            # Hard cap — even unbounded mode gives up eventually
+            if round_idx >= self._MAX_PERSISTENT_ROUNDS:
+                logger.warning(
+                    f"🛑 Persistent retry: {self._MAX_PERSISTENT_ROUNDS} 라운드 상한 도달 — "
+                    "자동 포기 (사용자 환경 정리 후 재시도 필요)"
+                )
+                if last_result is None:
+                    last_result = {"status": "error",
+                                   "message": "max retry rounds reached"}
+                last_result["persistent_rounds_used"] = round_idx
+                last_result["persistent_log"] = persistent_log
+                last_result["gave_up_reason"] = "max_rounds"
+                last_result["hint"] = (
+                    f"자동 회복 {self._MAX_PERSISTENT_ROUNDS} 라운드 시도했으나 성공 못함. "
+                    "Chrome 탭 정리 · Discord/Teams 종료 · 시스템 재부팅 후 재시도, "
+                    "또는 이미지 1장으로 축소해서 재시도."
+                )
+                return last_result
             # Determine settings for this round
             if round_idx < len(self._ESCALATION_LADDER):
                 label, browsers, blender, wait_s = self._ESCALATION_LADDER[round_idx]
@@ -403,9 +446,49 @@ class CleanMeshPipeline:
                     logger.info(f"✅ Persistent retry 라운드 {round_idx+1} 성공")
                 return last_result
 
-            # Not OK — log why and continue
+            # Not OK — log why and update no-progress detector
             err_msg = (last_result or {}).get("message", "")[:200]
             logger.warning(f"❌ 라운드 {round_idx+1} 실패: {err_msg}")
+
+            # Signature = (message_prefix, current free VRAM bucketed to 100 MB).
+            # If same signature repeats N times, we're not making progress.
+            _msg_prefix = err_msg.split(":")[0][:80] if err_msg else ""
+            _vr = get_vram_summary().get("free_mb", 0) or 0
+            _sig = (_msg_prefix, int(_vr) // 100)
+            recent_signatures.append(_sig)
+            recent_signatures = recent_signatures[-self._NO_PROGRESS_STREAK:]
+
+            # Push progress to UI (server subscribes via progress_sink)
+            if progress_sink is not None:
+                try:
+                    progress_sink({
+                        "round": round_idx + 1,
+                        "max_rounds": self._MAX_PERSISTENT_ROUNDS,
+                        "free_mb": _vr,
+                        "last_error_tail": err_msg[-160:],
+                        "no_progress_streak": len(
+                            [s for s in recent_signatures if s == _sig]),
+                    })
+                except Exception:
+                    pass
+
+            # No-progress detector: N identical failures = give up now
+            if (len(recent_signatures) >= self._NO_PROGRESS_STREAK
+                    and all(s == recent_signatures[-1] for s in recent_signatures)):
+                logger.warning(
+                    f"🛑 진전 없음: 최근 {self._NO_PROGRESS_STREAK} 라운드 동일 실패 "
+                    f"({_sig[0]!r} @ ~{_sig[1]*100} MB) — 자동 포기"
+                )
+                last_result["persistent_rounds_used"] = round_idx + 1
+                last_result["persistent_log"] = persistent_log
+                last_result["gave_up_reason"] = "no_progress"
+                last_result["hint"] = (
+                    f"동일 실패 {self._NO_PROGRESS_STREAK}회 반복. 외부 상태 변화 없이 "
+                    "재시도해도 결과 같음. 무거운 앱 종료 · 이미지 수/해상도 축소 · "
+                    "시스템 재부팅 중 하나 후 재시도."
+                )
+                return last_result
+
             round_idx += 1
 
     def _generate(self, decision: RoutingDecision, timestamp: str,
