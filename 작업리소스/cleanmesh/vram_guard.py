@@ -28,6 +28,7 @@ from __future__ import annotations
 import logging
 import shutil
 import subprocess
+from .subproc import run as _hidden_run
 import time
 
 logger = logging.getLogger(__name__)
@@ -47,7 +48,7 @@ def get_free_vram_mb(timeout: float = 5.0) -> int | None:
     if nvsmi is None:
         return None
     try:
-        cp = subprocess.run(
+        cp = _hidden_run(
             [nvsmi,
              "--query-gpu=memory.free",
              "--format=csv,noheader,nounits"],
@@ -68,7 +69,7 @@ def get_vram_summary() -> dict:
     if nvsmi is None:
         return {}
     try:
-        cp = subprocess.run(
+        cp = _hidden_run(
             [nvsmi,
              "--query-gpu=memory.total,memory.used,memory.free",
              "--format=csv,noheader,nounits"],
@@ -120,7 +121,7 @@ def wsl_shutdown(timeout: float = 15.0) -> dict:
     wsl = shutil.which("wsl") or "wsl"
     before = get_vram_summary().get("free_mb")
     try:
-        cp = subprocess.run(
+        cp = _hidden_run(
             [wsl, "--shutdown"],
             capture_output=True, text=True, timeout=timeout,
             encoding="utf-8", errors="replace",
@@ -185,7 +186,7 @@ def kill_known_gpu_hogs(also_browsers: bool = False,
     for name in targets:
         try:
             # Use taskkill — present on every Windows install, no PowerShell quirks
-            cp = subprocess.run(
+            cp = _hidden_run(
                 ["taskkill", "/F", "/IM", f"{name}.exe", "/T"],
                 capture_output=True, text=True, timeout=8,
                 encoding="utf-8", errors="replace",

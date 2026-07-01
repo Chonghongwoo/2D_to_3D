@@ -12,6 +12,7 @@ Usage:
 
 import json
 import subprocess
+from .subproc import run as _hidden_run
 import logging
 from pathlib import Path
 from typing import Optional, List
@@ -643,7 +644,7 @@ class CleanMeshPipeline:
     def _run_blender(self, cmd: list, stage_name: str) -> dict:
         """Execute a Blender command and parse the RESULT: JSON output."""
         try:
-            result = subprocess.run(
+            result = _hidden_run(
                 cmd,
                 capture_output=True,
                 text=True,

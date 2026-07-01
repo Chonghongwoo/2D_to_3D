@@ -30,6 +30,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+from .subproc import run as _hidden_run
 import json
 from typing import Optional
 
@@ -53,7 +54,7 @@ def _run_aif_validate(usd_path: str, out_dir: str) -> dict:
         "--predicate", "Any",
     ]
     try:
-        proc = subprocess.run(
+        proc = _hidden_run(
             cmd, capture_output=True, text=True, timeout=600,
             encoding="utf-8", errors="replace",
         )

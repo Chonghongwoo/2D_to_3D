@@ -10,6 +10,7 @@ import json
 import shutil
 import logging
 import subprocess
+from ..subproc import run as _hidden_run
 from pathlib import Path
 from typing import Optional, List
 from datetime import datetime
@@ -149,7 +150,7 @@ def _run_trellis_once(sanitized: List[Path], raw_workdir_out: Path,
     logger.debug(f"WSL cmd: {bash_cmd}")
 
     try:
-        cp = subprocess.run(
+        cp = _hidden_run(
             cmd, capture_output=True, text=True,
             timeout=timeout_s, encoding="utf-8", errors="replace",
         )
@@ -436,7 +437,7 @@ def generate(
 def check_available() -> bool:
     """Quick check: WSL distro reachable + venv exists."""
     try:
-        cp = subprocess.run(
+        cp = _hidden_run(
             ["wsl", "-d", WSL_DISTRO, "--", "test", "-f", "/root/trellis-venv/bin/python"],
             capture_output=True, text=True, timeout=10,
         )

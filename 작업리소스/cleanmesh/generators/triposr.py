@@ -215,7 +215,7 @@ print(f'RESULT:{{"status":"success","method":"triposr_direct","output_path":"{ou
 """
 
     try:
-        result = subprocess.run(
+        result = _hidden_run(
             [str(venv_python), "-c", script],
             capture_output=True,
             text=True,

@@ -7,6 +7,7 @@ regular/mechanical objects like drums, pallets, boxes, shelves, and conveyors.
 
 import json
 import subprocess
+from ..subproc import run as _hidden_run
 import logging
 from pathlib import Path
 from typing import Optional
@@ -90,7 +91,7 @@ def generate(
     logger.debug(f"명령어: {' '.join(cmd)}")
 
     try:
-        result = subprocess.run(
+        result = _hidden_run(
             cmd,
             capture_output=True,
             text=True,

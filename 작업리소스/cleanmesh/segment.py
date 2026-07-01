@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import logging
 import subprocess
+from .subproc import run as _hidden_run
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
@@ -105,7 +106,7 @@ def segment_image(
              image_path.name, output_path.name, len(points), bool(box))
 
     try:
-        proc = subprocess.run(
+        proc = _hidden_run(
             cmd,
             input=spec_json,
             capture_output=True,
